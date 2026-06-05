@@ -4,8 +4,9 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 日期 | 2026-06-05 |
+| 备注 | 已修正：joy_node→game_controller_node、D-pad映射、Windows支持说明 |
 | 分支 | `feature/phase1-chassis-teleop` |
 | 目标 | 基于 ROS2 实现 PC 手柄 → WiFi → 树莓派 → LeKiwi 底盘遥控 |
 
@@ -57,7 +58,7 @@
 │                           PC 端 (Windows 11)                                 │
 │                                                                              │
 │   ┌──────────────┐         ┌─────────────────────────┐                      │
-│   │ Xbox 手柄    │  USB    │   joy_node              │                      │
+│   │ Xbox 手柄    │  USB    │   game_controller_node  │                      │
 │   │ (物理设备)    │────────▶│   (joy package)         │                      │
 │   └──────────────┘         │   读取手柄原始状态        │                      │
 │                            │   发布 /joy              │                      │
@@ -120,15 +121,16 @@
 
 ## 4. 节点详细设计
 
-### 4.1 joy_node（PC 端）
+### 4.1 game_controller_node（PC 端）
 
 - **来源**：ROS2 官方 `joy` 包
-- **作用**：读取操作系统识别到的手柄设备，将原始输入封装为 ROS2 标准消息
+- **作用**：使用 SDL2 Game Controller API 读取手柄，提供**跨平台一致的固定映射**
+- **为什么不用 `joy_node`**：`joy_node` 基于 SDL2 Joystick API，Windows 和 Linux 映射不一致（[GitHub Issue #176](https://github.com/ros-drivers/joystick_drivers/issues/176)）
 - **发布 Topic**：`/joy`
 - **消息类型**：`sensor_msgs/Joy`
-- **运行方式**：`ros2 run joy joy_node`
+- **运行方式**：`ros2 run joy game_controller_node --ros-args -p device_id:=0`
 
-#### Joy 消息结构
+#### Joy 消息结构（game_controller_node 的 Xbox 固定映射）
 
 ```yaml
 std_msgs/Header header
@@ -136,18 +138,18 @@ float32[] axes      # 摇杆/扳机模拟值 [-1.0, 1.0]
 int32[] buttons     # 按钮状态 [0, 1]
 ```
 
-对于 Xbox 手柄（Linux/SDL2 映射）：
+**Axes 索引**：
 
 | 索引 | axes | 含义 |
 |------|------|------|
 | 0 | axes[0] | 左摇杆 X |
 | 1 | axes[1] | 左摇杆 Y |
-| 2 | axes[2] | 左扳机 LT |
-| 3 | axes[3] | 右摇杆 X |
-| 4 | axes[4] | 右摇杆 Y |
+| 2 | axes[2] | 右摇杆 X |
+| 3 | axes[3] | 右摇杆 Y |
+| 4 | axes[4] | 左扳机 LT |
 | 5 | axes[5] | 右扳机 RT |
-| 6 | axes[6] | D-pad X（方向键左右） |
-| 7 | axes[7] | D-pad Y（方向键上下） |
+
+**Buttons 索引**：
 
 | 索引 | buttons | 含义 |
 |------|---------|------|
@@ -155,15 +157,19 @@ int32[] buttons     # 按钮状态 [0, 1]
 | 1 | buttons[1] | B |
 | 2 | buttons[2] | X |
 | 3 | buttons[3] | Y |
-| 4 | buttons[4] | LB |
-| 5 | buttons[5] | RB |
-| 6 | buttons[6] | BACK |
-| 7 | buttons[7] | START |
-| 8 | buttons[8] | XBox 键 |
-| 9 | buttons[9] | 左摇杆按下 |
-| 10 | buttons[10] | 右摇杆按下 |
+| 4 | buttons[4] | BACK |
+| 5 | buttons[5] | GUIDE |
+| 6 | buttons[6] | START |
+| 7 | buttons[7] | 左摇杆按下 |
+| 8 | buttons[8] | 右摇杆按下 |
+| 9 | buttons[9] | LB（左肩键） |
+| 10 | buttons[10] | RB（右肩键） |
+| 11 | buttons[11] | DPAD_UP（方向键上） |
+| 12 | buttons[12] | DPAD_DOWN（方向键下） |
+| 13 | buttons[13] | DPAD_LEFT（方向键左） |
+| 14 | buttons[14] | DPAD_RIGHT（方向键右） |
 
-> **注意**：Windows 下的 `joy` 包映射可能与 Linux 不同，实际开发时需用 `ros2 topic echo /joy` 确认。
+> **注意**：`game_controller_node` 中 D-pad 是 buttons（11-14），不是 axes。这与 `joy_node` 完全不同。
 
 ---
 
@@ -201,37 +207,38 @@ class LekiwiTeleopNode(Node):
     
     def joy_callback(self, msg: Joy):
         # LB 切换速度档（边沿检测）
-        lb_current = msg.buttons[4] == 1
+        lb_current = msg.buttons[9] == 1
         if lb_current and not self.prev_lb:
             self.speed_index = (self.speed_index + 1) % 3
         self.prev_lb = lb_current
         
         speed = self.speed_levels[self.speed_index]
         
-        # D-pad 读取（axes[6] 左右, axes[7] 上下）
-        # 注意：axes 值通常为 -1, 0, 1，但有些驱动是 0/1 按钮式
-        hat_x = msg.axes[6] if len(msg.axes) > 6 else 0.0
-        hat_y = msg.axes[7] if len(msg.axes) > 7 else 0.0
-        rb_pressed = msg.buttons[5] == 1
+        # D-pad 读取（game_controller_node 中 D-pad 是 buttons 11-14）
+        dpad_up = msg.buttons[11] == 1
+        dpad_down = msg.buttons[12] == 1
+        dpad_left = msg.buttons[13] == 1
+        dpad_right = msg.buttons[14] == 1
+        rb_pressed = msg.buttons[10] == 1
         
         twist = Twist()
         
         if rb_pressed:
-            # RB + 左右 = 原地旋转
-            if hat_x < 0:
+            # RB + 左/右 = 原地旋转
+            if dpad_left:
                 twist.angular.z = math.radians(self.max_angular_speed)
-            elif hat_x > 0:
+            elif dpad_right:
                 twist.angular.z = -math.radians(self.max_angular_speed)
         else:
             # 平移控制
-            if hat_y > 0:
+            if dpad_up:
                 twist.linear.x = speed          # 前进
-            elif hat_y < 0:
+            elif dpad_down:
                 twist.linear.x = -speed         # 后退
             
-            if hat_x < 0:
+            if dpad_left:
                 twist.linear.y = speed          # 左平移
-            elif hat_x > 0:
+            elif dpad_right:
                 twist.linear.y = -speed         # 右平移
         
         self.cmd_pub.publish(twist)
@@ -315,7 +322,7 @@ LeRobot 的 `lekiwi_host.py` 自带 500ms 看门狗（`watchdog_timeout_ms`）�
 
 | Topic | 类型 | 发布者 | 订阅者 | 说明 |
 |-------|------|--------|--------|------|
-| `/joy` | `sensor_msgs/Joy` | `joy_node` | `lekiwi_teleop_node` | 手柄原始输入 |
+| `/joy` | `sensor_msgs/Joy` | `game_controller_node` | `lekiwi_teleop_node` | 手柄原始输入 |
 | `/cmd_vel` | `geometry_msgs/Twist` | `lekiwi_teleop_node` | `lekiwi_base_node` | 底盘速度指令 |
 
 ### 5.2 geometry_msgs/Twist 字段说明
@@ -340,16 +347,16 @@ geometry_msgs/Vector3 angular
 
 ### 6.1 Phase 1 键位表
 
-| 按键 | 功能 | 输出 |
-|------|------|------|
-| D-pad 上 | 前进 | `linear.x = +speed` |
-| D-pad 下 | 后退 | `linear.x = -speed` |
-| D-pad 左 | 左平移 | `linear.y = +speed` |
-| D-pad 右 | 右平移 | `linear.y = -speed` |
-| RB + D-pad 左 | 逆时针旋转 | `angular.z = +max_angular` |
-| RB + D-pad 右 | 顺时针旋转 | `angular.z = -max_angular` |
-| LB（按下瞬间） | 切换速度档 | Low → Medium → High → Low |
-| START | 退出程序 | 发送零速度后节点退出 |
+| 按键 | 功能 | Joy 消息 | 输出 |
+|------|------|----------|------|
+| D-pad 上 | 前进 | `buttons[11]` | `linear.x = +speed` |
+| D-pad 下 | 后退 | `buttons[12]` | `linear.x = -speed` |
+| D-pad 左 | 左平移 | `buttons[13]` | `linear.y = +speed` |
+| D-pad 右 | 右平移 | `buttons[14]` | `linear.y = -speed` |
+| RB + D-pad 左 | 逆时针旋转 | `buttons[10] + buttons[13]` | `angular.z = +max_angular` |
+| RB + D-pad 右 | 顺时针旋转 | `buttons[10] + buttons[14]` | `angular.z = -max_angular` |
+| LB（按下瞬间） | 切换速度档 | `buttons[9]` | Low → Medium → High → Low |
+| START | 退出程序 | `buttons[6]` | 发送零速度后节点退出 |
 
 ### 6.2 速度档位
 
@@ -575,19 +582,61 @@ Nav2 需要的标准接口：
 
 ## 10. 依赖与安装
 
-### 10.1 PC 端（Windows）
+### 10.1 PC 端（Windows 11）
 
-- ROS2 Jazzy Jalisco（Windows 支持）或 ROS2 Humble（WSL2）
-- Python 3.12+
-- `joy` 包：`ros2 run joy joy_node` 可用
-- 手柄驱动：Xbox 手柄 Windows 原生支持
+> ⚠️ **Windows 11 不是 ROS2 Jazzy 官方 Tier 1 支持平台**（官方仅支持 Windows 10）。以下方案基于社区实践，如遇问题建议改用 **WSL2 Ubuntu 24.04**。
 
-### 10.2 树莓派端（Ubuntu/Raspberry Pi OS）
+- **ROS2 Jazzy**：通过 `pixi` + conda-forge 安装预编译二进制包
+  ```powershell
+  # 下载 pixi.toml 和预编译包
+  irm https://raw.githubusercontent.com/ros2/ros2/refs/heads/jazzy/pixi.toml -OutFile pixi.toml
+  pixi install
+  # 下载 ros2-jazzy-*-windows-release-amd64.zip 并解压
+  pixi shell
+  call .\ros2-windows\local_setup.bat
+  ```
+- **Python**：由 pixi 环境管理（通常为 3.11/3.12）
+- **`joy` 包**：`ros2 run joy game_controller_node`（使用 `game_controller_node`，非 `joy_node`）
+- **手柄驱动**：Xbox 手柄 Windows 原生支持（SDL2 通过 DirectInput/XInput）
+- **防火墙**：首次运行 ROS2 节点时，Windows 会弹出防火墙提示，需**允许 Python/ROS2 通过防火墙**（勾选专用网络和公用网络）
+- **路径长度**：Windows 默认 260 字符限制可能影响 ROS2，建议修改注册表 `LongPathsEnabled`
 
-- ROS2 Jazzy Jalisco（ARM64 版本）
-- Python 3.12+
-- LeRobot 库（`pip install -e .` 从源码安装）
-- 串口权限：`sudo usermod -aG dialout $USER`
+### 10.2 树莓派端（Ubuntu 24.04 for ARM64）
+
+- **ROS2 Jazzy**：ARM64 是 Tier 1 支持平台，可直接 apt 安装
+  ```bash
+  sudo apt install ros-jazzy-desktop
+  ```
+- **Python**：Ubuntu 24.04 默认 Python 3.12
+- **LeRobot 库**：从源码安装，启用 LeKiwi 支持
+  ```bash
+  cd ~/lerobot-workspace/lerobot
+  pip install -e ".[lekiwi]"
+  ```
+- **串口权限**：
+  ```bash
+  sudo usermod -aG dialout $USER
+  # 重新登录生效
+  ```
+
+### 10.3 跨平台通信注意事项
+
+- **统一 DDS**：两端都使用默认 `rmw_fastrtps_cpp`
+- **统一 DOMAIN_ID**：如 `42`（避免与邻居冲突）
+  ```bash
+  # Linux
+  export ROS_DOMAIN_ID=42
+  # Windows PowerShell
+  $env:ROS_DOMAIN_ID=42
+  ```
+- **多播排查**：如果 `ros2 topic list` 看不到对方节点
+  ```bash
+  # 树莓派发送
+  ros2 multicast send
+  # PC 接收
+  ros2 multicast receive
+  # 如果收不到 → 路由器阻止多播，改用 ROS_STATIC_PEERS
+  ```
 
 ### 10.3 双方共同依赖
 
@@ -695,3 +744,4 @@ base_vel = self._wheel_raw_to_body(
 | 日期 | 操作 | 内容摘要 |
 |------|------|---------|
 | 2026-06-05 | 创建 | 初始版本，基于对话整理完整 Phase 1 架构 |
+| 2026-06-05 | 修正 | v1.1：joy_node→game_controller_node、D-pad映射改为buttons、LB/RB/START索引修正、Windows11支持说明、防火墙提示 |
