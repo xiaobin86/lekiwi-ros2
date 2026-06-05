@@ -1,0 +1,7 @@
+# PC 端额外依赖（conda 安装的 ROS2 包不包含）
+# numpy 和 pillow 可能已由 conda-forge 的 ROS2 包自动安装
+# 如需补充，请使用 conda install 或 pip install
+
+# pip-only 依赖（如果有的话）
+# pyserial  # 已在 lekiwi 包中
+# opencv-python  # 如需图像处理
