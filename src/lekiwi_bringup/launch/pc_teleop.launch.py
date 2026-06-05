@@ -2,6 +2,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+import sys
 
 
 def generate_launch_description():
@@ -41,7 +42,8 @@ def generate_launch_description():
         # lekiwi_teleop_node：手柄 → /cmd_vel
         Node(
             package='lekiwi_teleop',
-            executable='teleop_node',
+            executable=sys.executable,
+            arguments=['-m', 'lekiwi_teleop.teleop_node'],
             name='lekiwi_teleop_node',
             parameters=[{
                 'max_linear_speed': LaunchConfiguration('max_linear_speed'),

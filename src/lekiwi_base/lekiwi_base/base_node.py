@@ -65,7 +65,7 @@ class LekiwiBaseNode(Node):
             raise
 
         try:
-            config = LeKiwiConfig(port=port)
+            config = LeKiwiConfig(port=port, id="lekiwi")
             if not self.use_cameras:
                 config.cameras = {}  # Phase 1 禁用摄像头
 

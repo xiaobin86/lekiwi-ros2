@@ -2,6 +2,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+import sys
 
 
 def generate_launch_description():
@@ -33,7 +34,8 @@ def generate_launch_description():
         # lekiwi_base_node：/cmd_vel → 底盘
         Node(
             package='lekiwi_base',
-            executable='base_node',
+            executable=sys.executable,
+            arguments=['-m', 'lekiwi_base.base_node'],
             name='lekiwi_base_node',
             parameters=[{
                 'port': LaunchConfiguration('port'),
