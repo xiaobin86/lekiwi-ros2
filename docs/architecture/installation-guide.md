@@ -181,18 +181,21 @@ conda config --env --set channel_priority strict
 ### 3.3 安装 ROS2 Jazzy
 
 ```bash
-# 安装桌面版
-conda install ros-jazzy-desktop -y
+# 树莓派是 headless（无图形界面），安装 ros-base 即可
+# ros-base 包含所有核心通信和机器人库，不含 RViz2 等 GUI 工具
+conda install ros-jazzy-ros-base -y
+
+# 然后按需安装 joy 包
+conda install ros-jazzy-joy -y
 
 # 安装工具
 conda install colcon-common-extensions -y
 ```
 
-> **注意**：ARM64 上某些包可能没有预编译二进制，需要编译。如果遇到 `PackagesNotFoundError`，尝试：
-> ```bash
-> conda install ros-jazzy-ros-base -y  # 先装基础版
-> # 再按需安装其他包
-> ```
+> **为什么不用 desktop？**
+> `desktop` 包含 RViz2、RQt 等 GUI 工具，会拉取 Qt、OpenGL 等大量图形依赖。树莓派无显示器，这些依赖完全用不上，只会浪费磁盘空间和安装时间。
+>
+> **注意**：ARM64 上某些包可能没有预编译二进制，需要编译。如果遇到 `PackagesNotFoundError`，尝试单线程安装或减少并发。
 
 ### 3.4 安装 LeRobot
 
@@ -363,15 +366,22 @@ which python  # 应指向 conda env 路径
 
 ### Q3: 树莓派 conda 安装 ROS2 很慢或报错？
 
-ARM64 上部分包可能没有预编译。替代方案：
+ARM64 上部分包可能没有预编译。解决方案：
 ```bash
-# 方案 A：使用 apt 安装 ROS2（系统级），conda 只装 Python 依赖
-sudo apt install ros-jazzy-desktop ros-jazzy-joy
+# 方案 A：使用 apt 安装 ROS2（系统级），更稳定
+sudo apt install ros-jazzy-ros-base ros-jazzy-joy
 # 然后 conda 环境只用于 LeRobot 和其他 pip 包
 
-# 方案 B：使用 ros-base 减少依赖
-conda install ros-jazzy-ros-base -y
+# 方案 B：conda 只装 ros-base（不含 GUI）
+conda install ros-jazzy-ros-base ros-jazzy-joy -y
 ```
+
+### Q4: PC 和树莓派安装的包为什么不一样？
+
+| 平台 | 推荐安装 | 原因 |
+|------|---------|------|
+| PC (Windows 11) | `ros-jazzy-desktop` | 有图形界面，后续要用 RViz2 |
+| 树莓派 (headless) | `ros-jazzy-ros-base` | 无显示器，不需要 GUI 工具 |
 
 ### Q4: `game_controller_node` 找不到手柄？
 
