@@ -26,11 +26,11 @@ def generate_launch_description():
             description='发布频率 (Hz)'
         ),
 
-        # game_controller_node：读取手柄
+        # joy_node：读取手柄（支持非标准手柄如 Alante Li）
         Node(
             package='joy',
-            executable='game_controller_node',
-            name='game_controller_node',
+            executable='joy_node',
+            name='joy_node',
             parameters=[{
                 'device_id': 0,
                 'deadzone': 0.05,

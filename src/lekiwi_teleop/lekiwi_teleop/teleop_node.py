@@ -23,17 +23,20 @@ class LekiwiTeleopNode(Node):
         self.declare_parameter('max_angular_speed', 90.0)
         self.declare_parameter('speed_levels', [0.1, 0.3, 0.5])
         self.declare_parameter('publish_rate', 20.0)
+        self.declare_parameter('dpad_mode', 'auto')  # 'auto', 'buttons', 'axes'
 
         # 读取参数
         self.max_linear_speed = self.get_parameter('max_linear_speed').value
         self.max_angular_speed = self.get_parameter('max_angular_speed').value
         self.speed_levels = self.get_parameter('speed_levels').value
         publish_rate = self.get_parameter('publish_rate').value
+        self.dpad_mode = self.get_parameter('dpad_mode').value
 
         # 状态
         self.speed_index = 1  # 默认中速
         self.prev_lb = False
         self.exit_pressed = False
+        self._joy_initialized = False
 
         # 发布 /cmd_vel
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -54,43 +57,86 @@ class LekiwiTeleopNode(Node):
         )
 
     def joy_callback(self, msg: Joy):
-        """处理 Joy 消息，更新速度指令。"""
+        """处理 Joy 消息，更新速度指令。
+        
+        支持两种 D-pad 模式：
+        - buttons: game_controller_node，D-pad 是 buttons[11-14]
+        - axes: joy_node，D-pad 是 hat axes（通常在 axes 末尾）
+        """
         buttons = msg.buttons
         axes = msg.axes
 
-        # 安全检查：确保有足够的数据
-        if len(buttons) < 15:
-            self.get_logger().warning(
-                f'Joy message has only {len(buttons)} buttons, '
-                'expected 15 for game_controller_node'
+        # 首次收到消息时打印结构，帮助调试
+        if not self._joy_initialized:
+            self._joy_initialized = True
+            self.get_logger().info(
+                f'Joy device: {len(axes)} axes, {len(buttons)} buttons. '
+                f'D-pad mode: {self.dpad_mode}'
             )
-            return
 
-        # START 退出
-        if buttons[6] == 1:
+        # 自动检测 D-pad 模式
+        if self.dpad_mode == 'auto':
+            # 如果有 8+ axes，假设最后两个是 hat (D-pad)
+            if len(axes) >= 8:
+                self.dpad_mode = 'axes'
+                self.get_logger().info('Auto-detected D-pad mode: axes (hat)')
+            else:
+                self.dpad_mode = 'buttons'
+                self.get_logger().info('Auto-detected D-pad mode: buttons')
+
+        # START 退出 (button 7 通常是 Start/Menu)
+        start_btn = 7 if len(buttons) > 7 else (6 if len(buttons) > 6 else -1)
+        if start_btn >= 0 and buttons[start_btn] == 1:
             self.exit_pressed = True
             self.get_logger().info('START pressed, shutting down...')
             return
 
-        # LB 切换速度档（边沿检测）
-        lb_current = buttons[9] == 1
-        if lb_current and not self.prev_lb:
-            self.speed_index = (self.speed_index + 1) % len(self.speed_levels)
-            names = ['Slow', 'Medium', 'Fast']
-            self.get_logger().info(
-                f'Speed: {names[self.speed_index]} '
-                f'(xy={self.speed_levels[self.speed_index]})'
-            )
-        self.prev_lb = lb_current
+        # LB 切换速度档（button 4 通常是 LB/L1）
+        lb_btn = 4 if len(buttons) > 4 else -1
+        if lb_btn >= 0:
+            lb_current = buttons[lb_btn] == 1
+            if lb_current and not self.prev_lb:
+                self.speed_index = (self.speed_index + 1) % len(self.speed_levels)
+                names = ['Slow', 'Medium', 'Fast']
+                self.get_logger().info(
+                    f'Speed: {names[self.speed_index]} '
+                    f'(xy={self.speed_levels[self.speed_index]})'
+                )
+            self.prev_lb = lb_current
 
         speed = self.speed_levels[self.speed_index]
 
-        # D-pad (game_controller_node 中 buttons[11-14])
-        dpad_up = buttons[11] == 1
-        dpad_down = buttons[12] == 1
-        dpad_left = buttons[13] == 1
-        dpad_right = buttons[14] == 1
-        rb_pressed = buttons[10] == 1
+        # RB (button 5 通常是 RB/R1)
+        rb_btn = 5 if len(buttons) > 5 else -1
+        rb_pressed = buttons[rb_btn] == 1 if rb_btn >= 0 else False
+
+        # D-pad 读取
+        dpad_up = False
+        dpad_down = False
+        dpad_left = False
+        dpad_right = False
+
+        if self.dpad_mode == 'axes' and len(axes) >= 8:
+            # joy_node: D-pad 是 hat axes（最后两个）
+            # axes[-2] = hat_x, axes[-1] = hat_y
+            hat_x = axes[-2]
+            hat_y = axes[-1]
+            dpad_left = hat_x < -0.5
+            dpad_right = hat_x > 0.5
+            dpad_up = hat_y > 0.5
+            dpad_down = hat_y < -0.5
+        elif len(buttons) >= 15:
+            # game_controller_node: D-pad 是 buttons[11-14]
+            dpad_up = buttons[11] == 1
+            dpad_down = buttons[12] == 1
+            dpad_left = buttons[13] == 1
+            dpad_right = buttons[14] == 1
+        elif len(buttons) >= 12:
+            # 某些手柄 D-pad 在 buttons[8-11]
+            dpad_up = buttons[8] == 1
+            dpad_down = buttons[9] == 1
+            dpad_left = buttons[10] == 1
+            dpad_right = buttons[11] == 1
 
         twist = Twist()
 
