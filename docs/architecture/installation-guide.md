@@ -173,8 +173,23 @@ ros2 run demo_nodes_py listener
 如果之前拒绝了，手动添加规则：
 
 ```powershell
-# 以管理员身份运行 PowerShell
-New-NetFirewallRule -DisplayName "ROS2 Python" -Direction Inbound -Program "$(conda activate ros2 && python -c "import sys; print(sys.executable)")" -Action Allow
+# 以管理员身份运行 PowerShell（以下命令需要管理员权限）
+
+# 方法1：从开始菜单搜索 PowerShell，右键选择"以管理员身份运行"
+# 方法2：按 Win+X，选择"终端(管理员)"
+# 方法3：在当前 PowerShell 中执行：
+Start-Process powershell -Verb runAs
+
+# 允许 ping（树莓派 ping PC 需要）
+New-NetFirewallRule -DisplayName "Allow Ping" -Direction Inbound -Protocol ICMPv4 -IcmpType 8 -Action Allow
+
+# 允许 ROS2 程序通过防火墙
+New-NetFirewallRule -DisplayName "ROS2" -Direction Inbound -Program "C:\Users\acela\.conda\envs\ros2\python.exe" -Action Allow
+
+# 或者临时关闭防火墙（仅测试使用，测试后建议开启）
+Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+# 测试完成后重新开启：
+# Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True
 ```
 
 ---
@@ -319,50 +334,167 @@ python -c "from lerobot.robots.lekiwi import LeKiwi; print('LeRobot OK')"
 
 ## 4. 跨平台通信验证
 
-### 4.1 统一环境变量
+> **前提**：PC 和树莓派已完成 ROS2 安装，且在同一 WiFi 局域网。
+>
+> **示例 IP**（根据你的实际网络修改）：
+> - PC: `192.168.3.162`
+> - 树莓派: `192.168.3.178`
 
-**PC (Windows PowerShell)**：
+---
+
+### 4.1 基础检查
+
+**确认双方 ROS_DOMAIN_ID 一致**：
+
+**PC 端**：
 ```powershell
 conda activate ros2
-$env:ROS_DOMAIN_ID = 42
-$env:ROS_AUTOMATIC_DISCOVERY_RANGE = "SUBNET"
+$env:ROS_DOMAIN_ID        # 应输出 42
+$env:AMENT_PREFIX_PATH    # 应输出 conda 路径
 ```
 
-**树莓派 (Bash)**：
+**树莓派端**：
 ```bash
 conda activate ros2
-export ROS_DOMAIN_ID=42
-export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+echo $ROS_DOMAIN_ID       # 应输出 42
+echo $AMENT_PREFIX_PATH   # 应输出 conda 路径
 ```
 
-### 4.2 多播连通性测试
+**获取双方 IP 地址**：
 
+**PC 端**：
+```powershell
+ipconfig
+# 找到 WiFi 适配器的 IPv4 地址，如 192.168.3.162
+```
+
+**树莓派端**：
 ```bash
-# 树莓派（发送）
-ros2 multicast send
-
-# PC（接收）
-ros2 multicast receive
-# 应该收到 "Received from xxx.xxx.xxx.xxx: hello world"
+hostname -I
+# 应输出 192.168.3.178
 ```
 
-如果收不到：
-- 检查防火墙（Windows 必须允许）
-- 检查是否同一 WiFi
-- 尝试静态对等节点：
-  ```bash
-  export ROS_STATIC_PEERS="192.168.x.x"  # 对端 IP
+---
+
+### 4.2 ping 测试（网络层连通性）
+
+**PC 端 ping 树莓派**：
+```powershell
+ping 192.168.3.178
+```
+
+**树莓派端 ping PC**：
+```bash
+ping 192.168.3.162
+```
+
+**预期结果**：双方都能收到回复（`Reply from ...` / `64 bytes from ...`）。
+
+**如果 ping 不通**：
+- 检查是否连接同一 WiFi
+- Windows 防火墙可能阻止 ICMP，执行：
+  ```powershell
+  # 以管理员身份运行 PowerShell
+  New-NetFirewallRule -DisplayName "Allow Ping" -Direction Inbound -Protocol ICMPv4 -IcmpType 8 -Action Allow
   ```
 
-### 4.3 Topic 互通测试
+---
 
+### 4.3 多播测试（DDS 发现机制）
+
+ROS2 默认使用 UDP 多播进行节点发现。
+
+**树莓派端（发送）**：
 ```bash
-# PC 端发布测试消息
-ros2 topic pub /test std_msgs/String "data: hello from PC"
+ros2 multicast send
+```
 
-# 树莓派端接收
+**PC 端（接收）**：
+```powershell
+ros2 multicast receive
+```
+
+**预期结果**：PC 显示 `Received from 192.168.3.178: hello world`
+
+**实际情况**：家用路由器常阻止设备间多播，此测试**可能失败**，属于正常现象。
+
+---
+
+### 4.4 Topic 互通测试（核心验证）
+
+如果多播测试失败，跳过它，直接用 Topic 测试验证通信。
+
+#### 测试 1：树莓派发布 → PC 接收
+
+**树莓派端（发布）**：
+```bash
+conda activate ros2
+ros2 topic pub /test std_msgs/String "data: 'hello from Pi'"
+```
+
+**PC 端（接收）**：
+```powershell
+conda activate ros2
+ros2 topic list
+# 应能看到 /test
+
 ros2 topic echo /test
-# 应该看到消息
+# 应持续输出：
+# data: hello from Pi
+# ---
+```
+
+#### 测试 2：PC 发布 → 树莓派接收
+
+**PC 端（发布）**：
+```powershell
+ros2 topic pub /pc_test std_msgs/String "data: 'hello from PC'"
+```
+
+**树莓派端（接收）**：
+```bash
+ros2 topic echo /pc_test
+# 应持续输出：
+# data: hello from PC
+# ---
+```
+
+**如果 Topic 互相看不到**，使用静态对等节点（见 4.5 节）。
+
+---
+
+### 4.5 备用方案：静态对等节点
+
+如果 DDS 多播被路由器阻止，双方强制指定对端 IP：
+
+**PC 端（加入 activate hook）**：
+```powershell
+$hookPath = "$env:CONDA_PREFIX\etc\conda\activate.d\ros2_setup.ps1"
+$env:ROS_STATIC_PEERS = "192.168.3.178"
+# 追加到 hook 文件
+"`$env:ROS_STATIC_PEERS = `"192.168.3.178`"" | Add-Content $hookPath
+```
+
+**树莓派端（加入 activate hook）**：
+```bash
+cat >> $CONDA_PREFIX/etc/conda/activate.d/ros2_setup.sh << 'EOF'
+export ROS_STATIC_PEERS="192.168.3.162"
+EOF
+```
+
+**验证**：
+```bash
+# 双方重新激活环境
+conda deactivate
+conda activate ros2
+
+# 检查变量
+echo $ROS_STATIC_PEERS        # Linux
+$env:ROS_STATIC_PEERS         # Windows
+
+# 再次测试 topic
+ros2 topic list
+ros2 topic echo /test
 ```
 
 ---
