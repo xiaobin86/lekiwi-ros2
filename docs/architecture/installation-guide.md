@@ -90,7 +90,34 @@ conda install ros-jazzy-joy -y
 ros2 run joy game_controller_node --help
 ```
 
-### 2.5 安装开发依赖
+### 2.5 配置 ROS2 环境变量自动加载
+
+**重要**：conda 激活时不会自动 source ROS2 的 setup 文件，导致 `AMENT_PREFIX_PATH` 未设置，ROS2 命令报错。需要手动配置 PowerShell 的 activate hook。
+
+```powershell
+# 1. 确认在 ros2 环境
+conda activate ros2
+
+# 2. 创建 PowerShell activate hook（每次 conda activate ros2 时自动执行）
+$hookPath = "$env:CONDA_PREFIX\etc\conda\activate.d\ros2_setup.ps1"
+New-Item -ItemType Directory -Path (Split-Path $hookPath) -Force
+"`$env:AMENT_PREFIX_PATH = `"`$env:CONDA_PREFIX\Library`"" | Set-Content $hookPath
+
+# 3. 验证配置（退出再重新激活）
+conda deactivate
+conda activate ros2
+
+# 应该直接可用，无需手动 source
+ros2 --version
+ros2 run joy game_controller_node --help
+```
+
+**为什么需要这一步？**
+- conda 的 `activate.d` 只自动执行 `.ps1` 文件（PowerShell）
+- ROS2 的 `local_setup.bat` 在 PowerShell 中通过 `&` 执行时，环境变量不会传回父进程
+- 直接设置 `$env:AMENT_PREFIX_PATH` 是最可靠的方案
+
+### 2.6 安装开发依赖
 
 ```powershell
 # 在 ros2 环境中安装 pip 包
@@ -100,7 +127,7 @@ pip install numpy pillow pyserial
 pip install colcon-common-extensions
 ```
 
-### 2.6 验证安装
+### 2.7 验证安装
 
 ```powershell
 # 激活环境
@@ -116,7 +143,7 @@ ros2 run demo_nodes_cpp talker
 ros2 run demo_nodes_py listener
 ```
 
-### 2.7 Windows 防火墙配置
+### 2.8 Windows 防火墙配置
 
 首次运行 ROS2 节点时，Windows 会弹出防火墙提示：
 
@@ -130,7 +157,7 @@ ros2 run demo_nodes_py listener
 New-NetFirewallRule -DisplayName "ROS2 Python" -Direction Inbound -Program "$(conda activate ros2 && python -c "import sys; print(sys.executable)")" -Action Allow
 ```
 
-### 2.8 环境变量配置（可选）
+### 2.9 环境变量配置（可选）
 
 将以下内容添加到 PowerShell profile（`$PROFILE`）：
 
@@ -406,3 +433,4 @@ conda deactivate
 | 日期 | 操作 | 内容摘要 |
 |------|------|---------|
 | 2026-06-05 | 创建 | 初始版本，PC+树莓派 conda 安装指南 |
+| 2026-06-05 | 更新 | 新增 2.5 节：配置 ROS2 环境变量自动加载（PowerShell activate hook） |
