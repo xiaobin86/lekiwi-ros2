@@ -217,15 +217,15 @@ conda config --env --set channel_priority strict
 # ros-base 包含所有核心通信和机器人库，不含 RViz2 等 GUI 工具
 conda install ros-jazzy-ros-base -y
 
-# 然后按需安装 joy 包
-conda install ros-jazzy-joy -y
-
 # 安装工具
 conda install colcon-common-extensions -y
 ```
 
 > **为什么不用 desktop？**
 > `desktop` 包含 RViz2、RQt 等 GUI 工具，会拉取 Qt、OpenGL 等大量图形依赖。树莓派无显示器，这些依赖完全用不上，只会浪费磁盘空间和安装时间。
+>
+> **为什么不装 joy？**
+> 手柄在 PC 端读取，树莓派只接收 `/cmd_vel` 话题，不需要 joy 包。
 >
 > **注意**：ARM64 上某些包可能没有预编译二进制，需要编译。如果遇到 `PackagesNotFoundError`，尝试单线程安装或减少并发。
 
@@ -266,7 +266,38 @@ sudo usermod -aG dialout $USER
 sudo chmod 666 /dev/ttyACM0
 ```
 
-### 3.7 验证安装
+### 3.7 配置 ROS2 环境变量自动加载
+
+**重要**：conda 激活时不会自动 source ROS2 的 setup 文件。需要配置 bash 的 activate hook。
+
+```bash
+# 1. 确认在 ros2 环境
+conda activate ros2
+
+# 2. 创建 bash activate hook
+mkdir -p $CONDA_PREFIX/etc/conda/activate.d
+cat > $CONDA_PREFIX/etc/conda/activate.d/ros2_setup.sh << 'EOF'
+export AMENT_PREFIX_PATH="$CONDA_PREFIX"
+export ROS_DOMAIN_ID=42
+export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+EOF
+
+# 3. 验证（退出再重新激活）
+conda deactivate
+conda activate ros2
+
+echo $AMENT_PREFIX_PATH
+echo $ROS_DOMAIN_ID
+```
+
+**⚠️ Linux 与 Windows 路径差异**：
+
+| 平台 | AMENT_PREFIX_PATH | 说明 |
+|------|-------------------|------|
+| **Windows** | `$CONDA_PREFIX/Library` | 可执行文件在 `Library/bin/` |
+| **Linux** | `$CONDA_PREFIX` | 可执行文件在 `lib/` |
+
+### 3.8 验证安装
 
 ```bash
 # 激活环境
@@ -275,28 +306,14 @@ conda activate ros2
 # 检查 ROS2
 ros2 --version
 
-# 测试 talker/listener（开两个终端）
-# 终端 1
-ros2 run demo_nodes_cpp talker
-# 终端 2
-ros2 run demo_nodes_py listener
+# 测试话题系统
+ros2 topic list
 
 # 测试 LeRobot
 python -c "from lerobot.robots.lekiwi import LeKiwi; print('LeRobot OK')"
 ```
 
-### 3.8 环境变量配置
-
-添加到 `~/.bashrc`：
-
-```bash
-# ROS2 快速激活别名
-alias ros2-env='conda activate ros2 && export ROS_DOMAIN_ID=42 && export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET'
-
-# 可选：打开终端自动激活（不推荐，会减慢终端启动）
-# conda activate ros2 2>/dev/null
-# export ROS_DOMAIN_ID=42
-```
+**注意**：`ros-base` 不含示例节点（talker/listener），验证用 `ros2 topic list` 即可。
 
 ---
 
@@ -401,11 +418,11 @@ which python  # 应指向 conda env 路径
 ARM64 上部分包可能没有预编译。解决方案：
 ```bash
 # 方案 A：使用 apt 安装 ROS2（系统级），更稳定
-sudo apt install ros-jazzy-ros-base ros-jazzy-joy
+sudo apt install ros-jazzy-ros-base
 # 然后 conda 环境只用于 LeRobot 和其他 pip 包
 
 # 方案 B：conda 只装 ros-base（不含 GUI）
-conda install ros-jazzy-ros-base ros-jazzy-joy -y
+conda install ros-jazzy-ros-base -y
 ```
 
 ### Q4: PC 和树莓派安装的包为什么不一样？
@@ -425,7 +442,30 @@ ros2 run joy joy_enumerate_devices
 ros2 run joy game_controller_node --ros-args -p device_name:="Xbox Controller"
 ```
 
-### Q5: 如何退出 conda 环境？
+### Q5: `ros2 run` 报错 "Package not found"？
+
+可能是 `AMENT_PREFIX_PATH` 设置错误。
+
+```bash
+# 检查路径
+echo $AMENT_PREFIX_PATH
+
+# Linux 正确值（无 /Library 后缀）
+export AMENT_PREFIX_PATH="$CONDA_PREFIX"
+
+# Windows 正确值（有 /Library 后缀）
+$env:AMENT_PREFIX_PATH = "$env:CONDA_PREFIX\Library"
+
+# 刷新 daemon
+ros2 daemon stop
+ros2 daemon start
+```
+
+**Linux vs Windows 差异**：
+- Linux: `$CONDA_PREFIX`（可执行文件在 `lib/`）
+- Windows: `$CONDA_PREFIX/Library`（可执行文件在 `Library/bin/`）
+
+### Q6: 如何退出 conda 环境？
 
 ```bash
 conda deactivate
@@ -439,3 +479,5 @@ conda deactivate
 |------|------|---------|
 | 2026-06-05 | 创建 | 初始版本，PC+树莓派 conda 安装指南 |
 | 2026-06-05 | 更新 | 新增 2.5 节：配置 ROS2 环境变量自动加载（PowerShell activate hook） |
+| 2026-06-05 | 更新 | activate hook 包含 ROS_DOMAIN_ID，删除旧 profile 方法 |
+| 2026-06-05 | 更新 | 修正树莓派安装：删除 joy 包、修正 AMENT_PREFIX_PATH 路径、添加 Linux/Windows 路径差异说明 |
