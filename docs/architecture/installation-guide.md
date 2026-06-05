@@ -92,22 +92,35 @@ ros2 run joy game_controller_node --help
 
 ### 2.5 配置 ROS2 环境变量自动加载
 
-**重要**：conda 激活时不会自动 source ROS2 的 setup 文件，导致 `AMENT_PREFIX_PATH` 未设置，ROS2 命令报错。需要手动配置 PowerShell 的 activate hook。
+**重要**：conda 激活时不会自动 source ROS2 的 setup 文件，导致 `AMENT_PREFIX_PATH` 未设置，ROS2 命令报错。需要配置 PowerShell 的 activate hook。
 
 ```powershell
 # 1. 确认在 ros2 环境
 conda activate ros2
 
-# 2. 创建 PowerShell activate hook（每次 conda activate ros2 时自动执行）
+# 2. 创建 PowerShell activate hook
+# 这个文件会在每次 conda activate ros2 时自动执行
 $hookPath = "$env:CONDA_PREFIX\etc\conda\activate.d\ros2_setup.ps1"
 New-Item -ItemType Directory -Path (Split-Path $hookPath) -Force
-"`$env:AMENT_PREFIX_PATH = `"`$env:CONDA_PREFIX\Library`"" | Set-Content $hookPath
+
+@"
+# ROS2 AMENT_PREFIX_PATH（必须）
+\$env:AMENT_PREFIX_PATH = "\$env:CONDA_PREFIX\Library"
+
+# ROS2 网络隔离（推荐）
+\$env:ROS_DOMAIN_ID = "42"
+\$env:ROS_AUTOMATIC_DISCOVERY_RANGE = "SUBNET"
+"@ | Set-Content $hookPath
 
 # 3. 验证配置（退出再重新激活）
 conda deactivate
 conda activate ros2
 
-# 应该直接可用，无需手动 source
+# 检查环境变量
+$env:AMENT_PREFIX_PATH
+$env:ROS_DOMAIN_ID
+
+# 测试 ROS2
 ros2 --version
 ros2 run joy game_controller_node --help
 ```
@@ -116,6 +129,13 @@ ros2 run joy game_controller_node --help
 - conda 的 `activate.d` 只自动执行 `.ps1` 文件（PowerShell）
 - ROS2 的 `local_setup.bat` 在 PowerShell 中通过 `&` 执行时，环境变量不会传回父进程
 - 直接设置 `$env:AMENT_PREFIX_PATH` 是最可靠的方案
+
+**activate.d hook vs Profile 函数**
+
+| 方案 | 使用方式 | 推荐度 |
+|------|---------|--------|
+| **activate.d hook** | `conda activate ros2` 后自动设置 | ✅ 推荐 |
+| Profile 函数 | 需额外执行 `ros2-env` | ⚠️ 容易遗忘 |
 
 ### 2.6 安装开发依赖
 
@@ -155,21 +175,6 @@ ros2 run demo_nodes_py listener
 ```powershell
 # 以管理员身份运行 PowerShell
 New-NetFirewallRule -DisplayName "ROS2 Python" -Direction Inbound -Program "$(conda activate ros2 && python -c "import sys; print(sys.executable)")" -Action Allow
-```
-
-### 2.9 环境变量配置（可选）
-
-将以下内容添加到 PowerShell profile（`$PROFILE`）：
-
-```powershell
-# 自动激活 ros2 环境
-function ros2-env {
-    conda activate ros2
-    $env:ROS_DOMAIN_ID = 42
-    $env:ROS_AUTOMATIC_DISCOVERY_RANGE = "SUBNET"
-}
-
-# 使用: 打开新终端后执行 ros2-env
 ```
 
 ---
