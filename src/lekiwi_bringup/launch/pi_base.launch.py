@@ -16,6 +16,11 @@ def generate_launch_description():
             description='底盘串口设备'
         ),
         DeclareLaunchArgument(
+            'robot_id',
+            default_value='lekiwi',
+            description='机器人ID'
+        ),
+        DeclareLaunchArgument(
             'watchdog_timeout_ms',
             default_value='500',
             description='看门狗超时时间 (ms)'

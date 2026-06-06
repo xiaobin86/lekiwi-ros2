@@ -291,13 +291,13 @@ lerobot-ros2/
 │       └── topic-debugging.md            # 调试技巧
 ├── tools/                                 # 调试工具
 │   ├── topic_monitor.py                  # Topic 变化监视器
-│   ├── test_gamepad.py                   # 手柄硬件测试
-│   └── image_viewer.py                   # ROS2 图像查看器
+│   └── test_gamepad.py                   # 手柄硬件测试
 └── src/                                   # ROS2 工作空间
     ├── lekiwi_teleop/                     # PC 端遥操作包
     │   ├── lekiwi_teleop/
     │   │   ├── __init__.py
-    │   │   └── joy_to_cmd_vel.py          # joy → cmd_vel 转换
+    │   │   ├── joy_to_cmd_vel.py          # joy → cmd_vel 转换
+    │   │   └── image_viewer.py            # 摄像头图像显示（PC端）
     │   ├── package.xml
     │   ├── setup.py
     │   └── resource/lekiwi_teleop

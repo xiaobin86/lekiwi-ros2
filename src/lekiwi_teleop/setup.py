@@ -21,6 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'joy_to_cmd_vel = lekiwi_teleop.joy_to_cmd_vel:main',
+            'image_viewer = lekiwi_teleop.image_viewer:main',
         ],
     },
 )

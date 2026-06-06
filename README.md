@@ -61,16 +61,17 @@ lerobot-ros2/
 ├── src/                           # ROS2 包
 │   ├── lekiwi_teleop/             # PC 端遥操作
 │   │   ├── lekiwi_teleop/
-│   │   │   └── joy_to_cmd_vel.py      # joy → cmd_vel 转换
+│   │   │   ├── joy_to_cmd_vel.py      # joy → cmd_vel 转换
+│   │   │   └── image_viewer.py        # 摄像头图像显示
 │   │   └── setup.py
 │   ├── lekiwi_base/               # 树莓派端底盘驱动
 │   │   ├── lekiwi_base/
 │   │   │   └── base_node.py           # 底盘控制 + 摄像头
 │   │   └── setup.py
 │   └── lekiwi_bringup/            # Launch 文件
-│       └── launch/
-│           ├── pc_teleop.launch.py
-│           └── pi_base.launch.py
+│       ├── launch/
+│       │   ├── pc_teleop.launch.py    # PC端启动（手柄+可选摄像头）
+│       │   └── pi_base.launch.py      # 树莓派端启动
 ├── tools/                         # 调试工具
 │   ├── topic_monitor.py           # Topic 变化监视器
 │   ├── test_gamepad.py            # 手柄硬件测试

@@ -13,49 +13,63 @@ ssh acelan@192.168.3.178
 cd ~/lerobot-workspace/lerobot-ros2
 conda activate ros2
 
-# 方式 A：仅底盘（无摄像头，响应最快）
+# 方式 A：一键启动（推荐）
+# 仅底盘
+ros2 launch lekiwi_bringup pi_base.launch.py
+
+# 底盘 + 摄像头
+ros2 launch lekiwi_bringup pi_base.launch.py use_cameras:=true
+
+# 方式 B：手动启动（用于调试）
+# 仅底盘
 python -m lekiwi_base.base_node
 
-# 方式 B：底盘 + 摄像头（有轻微延迟）
+# 底盘 + 摄像头
 python -m lekiwi_base.base_node --ros-args -p use_cameras:=true
 ```
 
 ### 2. 启动 PC 端（手柄控制）
 
-开 **3 个终端**：
+#### 方式 A：一键启动（推荐）
 
-#### 终端 1：joy_node（手柄读取）
 ```powershell
 cd D:\work\lerobot-workspace\lerobot-ros2
 conda activate ros2
+ros2 launch lekiwi_bringup pc_teleop.launch.py
+```
+
+这会同时启动：
+- joy_node（手柄读取）
+- joy_to_cmd_vel（速度转换）
+
+#### 方式 B：手动启动（用于调试）
+
+如果需要单独调试某个节点：
+
+```powershell
+# 终端 1：手柄读取
 ros2 run joy joy_node
-```
 
-#### 终端 2：joy_to_cmd_vel（速度转换）
-```powershell
-cd D:\work\lerobot-workspace\lerobot-ros2\src\lekiwi_teleop
-conda activate ros2
+# 终端 2：速度转换（另一个终端）
 python -m lekiwi_teleop.joy_to_cmd_vel
+
+# 终端 3（可选）：查看速度输出
+python tools/topic_monitor.py /cmd_vel
 ```
 
-#### 终端 3（可选）：查看速度指令
-```powershell
-cd D:\work\lerobot-workspace\lerobot-ros2\tools
-conda activate ros2
-python topic_monitor.py /cmd_vel
-```
+### 3. 查看摄像头图像（可选）
 
-### 3. 查看摄像头图像（如果启用了摄像头）
+启动 PC 端时加上 `show_camera:=true`：
 
 ```powershell
-cd D:\work\lerobot-workspace\lerobot-ros2\tools
-conda activate ros2
+# 一键启动手柄 + 摄像头显示
+ros2 launch lekiwi_bringup pc_teleop.launch.py show_camera:=true
 
-# front 摄像头
-python image_viewer.py --ros-args -p topic:=/camera/front/image_raw
+# 指定 wrist 摄像头
+ros2 launch lekiwi_bringup pc_teleop.launch.py show_camera:=true camera_topic:=/camera/wrist/image_raw
 
-# wrist 摄像头
-python image_viewer.py --ros-args -p topic:=/camera/wrist/image_raw
+# 如果颜色偏蓝/红，启用RGB转换
+ros2 launch lekiwi_bringup pc_teleop.launch.py show_camera:=true convert_rgb:=true
 ```
 
 按 **Q** 退出图像窗口。
