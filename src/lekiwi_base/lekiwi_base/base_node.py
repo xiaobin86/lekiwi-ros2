@@ -382,55 +382,72 @@ class LekiwiBaseNode(Node):
             self.get_logger().error(f'Failed to send action: {e}')
 
     def _camera_loop(self):
-        """摄像头后台线程循环。
+        """摄像头后台线程循环（优化版，避免阻塞底盘控制）。
         
-        【为什么用独立线程？】
-        1. 摄像头读取可能耗时（USB 传输、图像解码）
-        2. 如果放在 ROS2 Timer 回调中，会阻塞控制循环
-        3. 独立线程保证控制循环的实时性
+        【性能优化策略】
+        1. 降低频率：5Hz（每200ms），避免占用过多CPU/USB带宽
+        2. 检查订阅者：没有PC端订阅时跳过读取，节省资源
+        3. 轮流读取：逐个读取摄像头，避免同时竞争USB带宽
+        4. 释放GIL：每次读取后短暂休眠，让出CPU给控制线程
         
-        【与 ROS2 的关系】
-        这个线程是普通的 Python 线程，不是 ROS2 的组件。
-        但它使用 ROS2 发布者（self.image_pubs）发布图像。
+        【卡顿问题解决】
+        原实现10Hz同时读取两个摄像头，导致：
+        - USB带宽竞争，read_latest()阻塞
+        - Python GIL竞争，阻塞send_action()
         
-        【注意】
-        rclpy 的发布者不是线程安全的！
-        虽然这里我们在单线程 ROS2 executor 中运行，
-        但如果未来改为 MultiThreadedExecutor，
-        需要确保发布者和订阅者的线程安全。
-        
-        【当前实现】
-        我们直接读取摄像头（cam.read_latest()），
-        不通过 get_observation()（避免串口冲突）。
+        优化后：
+        - 5Hz轮流读取，减少USB竞争
+        - 无订阅者时休眠500ms，几乎不占用资源
         """
-        self.get_logger().info('Camera thread started')
+        self.get_logger().info('Camera thread started (optimized)')
         frame_count = 0
 
         while self.camera_running and rclpy.ok():
             if not self.use_cameras or not self.image_pubs:
-                time.sleep(0.1)
+                time.sleep(0.2)
                 continue
 
             try:
-                # 直接读取摄像头，不通过 get_observation()
-                # 原因：get_observation() 会读取电机位置（访问串口），
-                # 与 send_action() 冲突，导致 "Port is in use" 错误
-                observation = {}
+                # 检查是否有订阅者（没有则跳过，节省资源）
+                has_subscribers = any(
+                    pub.get_subscription_count() > 0
+                    for pub in self.image_pubs.values()
+                )
+                
+                if not has_subscribers:
+                    # 没有PC端查看图像时，大幅降低频率
+                    time.sleep(0.5)
+                    continue
+
+                # 轮流读取摄像头，避免同时竞争USB带宽
                 for cam_key, cam in self.robot.cameras.items():
-                    observation[cam_key] = cam.read_latest()
+                    if cam_key not in self.image_pubs:
+                        continue
+                    
+                    # 读取图像
+                    frame = cam.read_latest()
+                    
+                    # 发布图像
+                    if isinstance(frame, np.ndarray) and frame.ndim == 3:
+                        img_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+                        img_msg.header.stamp = self.get_clock().now().to_msg()
+                        img_msg.header.frame_id = f'{cam_key}_camera'
+                        self.image_pubs[cam_key].publish(img_msg)
+                    
+                    # 每次读取后休眠10ms，释放GIL给控制线程
+                    time.sleep(0.01)
                 
                 frame_count += 1
-                if frame_count % 30 == 0:  # 每3秒打印一次调试信息
+                if frame_count % 10 == 0:  # 每2秒打印一次
                     self.get_logger().info(
-                        f'Camera thread alive, frames={frame_count}, '
-                        f'cameras={list(observation.keys())}'
+                        f'Camera thread: {frame_count} frames, '
+                        f'subscribers={[f"{k}:{v.get_subscription_count()}" for k, v in self.image_pubs.items()]}'
                     )
 
-                self._publish_camera_images(observation)
             except Exception as e:
                 self.get_logger().warning(f'Camera thread error: {e}')
 
-            time.sleep(0.1)  # 10Hz
+            time.sleep(0.2)  # 5Hz总频率
 
     def _publish_camera_images(self, observation: dict):
         """发布摄像头图像到 ROS2 Topic。

@@ -12,17 +12,21 @@ def generate_launch_description():
     启动节点：
     1. joy_node (ROS2官方): 读取手柄，发布 /joy
     2. joy_to_cmd_vel (自定义): 订阅 /joy，转换为 /cmd_vel
-    3. image_viewer (可选): 显示摄像头图像
+    3. image_viewer_front (可选): 显示front摄像头
+    4. image_viewer_wrist (可选): 显示wrist摄像头
     
     使用方法:
     # 基础启动（仅手柄+底盘控制）
     ros2 launch lekiwi_bringup pc_teleop.launch.py
     
-    # 带摄像头显示
+    # 显示front摄像头（默认）
     ros2 launch lekiwi_bringup pc_teleop.launch.py show_camera:=true
     
-    # 指定摄像头话题
-    ros2 launch lekiwi_bringup pc_teleop.launch.py show_camera:=true camera_topic:=/camera/wrist/image_raw
+    # 显示两个摄像头
+    ros2 launch lekiwi_bringup pc_teleop.launch.py show_camera:=true show_wrist:=true
+    
+    # 如果颜色偏蓝/红，禁用RGB转换
+    ros2 launch lekiwi_bringup pc_teleop.launch.py show_camera:=true convert_rgb:=false
     """
 
     return LaunchDescription([
@@ -40,17 +44,17 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'show_camera',
             default_value='false',
-            description='是否显示摄像头图像 (true/false)'
+            description='是否显示front摄像头 (true/false)'
         ),
         DeclareLaunchArgument(
-            'camera_topic',
-            default_value='/camera/front/image_raw',
-            description='摄像头图像话题'
+            'show_wrist',
+            default_value='false',
+            description='是否显示wrist摄像头 (true/false)'
         ),
         DeclareLaunchArgument(
             'convert_rgb',
-            default_value='false',
-            description='BGR转RGB (如果颜色偏蓝/红则设为true)'
+            default_value='true',
+            description='BGR转RGB (默认true，如颜色偏则改为false)'
         ),
 
         # ========== 核心节点 ==========
@@ -75,21 +79,37 @@ def generate_launch_description():
             output='screen',
         ),
 
-        # ========== 可选节点 ==========
-        # image_viewer: 显示摄像头图像（仅在show_camera:=true时启动）
-        # 使用 sys.executable 直接运行 Python 模块（避免需要重新安装包注册 entry_point）
+        # ========== 可选节点：front摄像头 ==========
         Node(
             package='lekiwi_teleop',
             executable=sys.executable,
             arguments=['-m', 'lekiwi_teleop.image_viewer'],
-            name='image_viewer',
+            name='image_viewer_front',
             parameters=[{
-                'topic': LaunchConfiguration('camera_topic'),
+                'topic': '/camera/front/image_raw',
+                'window_name': 'Front Camera',
                 'convert_rgb': LaunchConfiguration('convert_rgb'),
             }],
             output='screen',
             condition=IfCondition(
                 PythonExpression(["'", LaunchConfiguration('show_camera'), "' == 'true'"])
+            ),
+        ),
+
+        # ========== 可选节点：wrist摄像头 ==========
+        Node(
+            package='lekiwi_teleop',
+            executable=sys.executable,
+            arguments=['-m', 'lekiwi_teleop.image_viewer'],
+            name='image_viewer_wrist',
+            parameters=[{
+                'topic': '/camera/wrist/image_raw',
+                'window_name': 'Wrist Camera',
+                'convert_rgb': LaunchConfiguration('convert_rgb'),
+            }],
+            output='screen',
+            condition=IfCondition(
+                PythonExpression(["'", LaunchConfiguration('show_wrist'), "' == 'true'"])
             ),
         ),
     ])
