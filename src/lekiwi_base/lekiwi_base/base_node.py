@@ -78,19 +78,24 @@ class LekiwiBaseNode(Node):
             self.get_logger().fatal(f'Failed to connect LeKiwi: {e}')
             raise
 
+    ARM_DEFAULTS = {
+        "arm_shoulder_pan.pos": 0.0,
+        "arm_shoulder_lift.pos": -100.0,
+        "arm_elbow_flex.pos": 90.0,
+        "arm_wrist_flex.pos": 70.0,
+        "arm_wrist_roll.pos": 0.0,
+        "arm_gripper.pos": 0.0,
+    }
+
     def _make_zero_action(self) -> dict:
-        """创建零动作字典（停止所有运动）。"""
-        return {
-            "arm_shoulder_pan.pos": 0.0,
-            "arm_shoulder_lift.pos": 0.0,
-            "arm_elbow_flex.pos": 0.0,
-            "arm_wrist_flex.pos": 0.0,
-            "arm_wrist_roll.pos": 0.0,
-            "arm_gripper.pos": 0.0,
+        """创建零动作字典（停止底盘运动，但保持机械臂默认姿态）。"""
+        action = dict(self.ARM_DEFAULTS)  # 复制默认机械臂姿态
+        action.update({
             "x.vel": 0.0,
             "y.vel": 0.0,
             "theta.vel": 0.0,
-        }
+        })
+        return action
 
     def cmd_vel_callback(self, msg: Twist):
         """收到 /cmd_vel，转换为 LeRobot action 格式。"""

@@ -38,28 +38,31 @@ class JoyToCmdVel(Node):
     def joy_callback(self, msg):
         twist = Twist()
 
-        # 映射（根据你的 Alante Li 手柄）：
-        # axes[6] = D-pad 左右 (-1=左, 1=右)
-        # axes[7] = D-pad 上下 (1=上, -1=下)
-        # 但 client_pc.py 用的是 hat，这里 joy 消息里 hat 已经追加到 axes 末尾
-        # axes[6] = hat_x, axes[7] = hat_y
-
+        # 完全按照 client_pc.py 的逻辑映射
+        # joy_node 输出: axes[6]=hat_x (左=-1, 右=1), axes[7]=hat_y (上=1, 下=-1)
+        # RB = buttons[7]
         if len(msg.axes) >= 8:
-            # 使用 hat (axes[6], axes[7])
-            hat_x = self.apply_deadzone(msg.axes[6])   # 左右
-            hat_y = self.apply_deadzone(msg.axes[7])   # 上下
+            hat_x = msg.axes[6]
+            hat_y = msg.axes[7]
+            rb = msg.buttons[7] if len(msg.buttons) > 7 else 0
 
-            # 前/后
-            twist.linear.x = hat_y * self.linear_scale
-            # 左/右平移（全向底盘）
-            twist.linear.y = -hat_x * self.linear_scale
+            if rb and hat_x < 0:
+                # RB + 左 = 逆时针旋转
+                twist.angular.z = self.angular_scale
+            elif rb and hat_x > 0:
+                # RB + 右 = 顺时针旋转
+                twist.angular.z = -self.angular_scale
+            else:
+                # D-pad 控制平移 (完全按照 client_pc.py)
+                if hat_y > 0:
+                    twist.linear.x = self.linear_scale
+                elif hat_y < 0:
+                    twist.linear.x = -self.linear_scale
 
-            # 旋转：用 Button RB (buttons[7]) + 左右
-            if len(msg.buttons) > 7 and msg.buttons[7] == 1:
-                twist.angular.z = -hat_x * self.angular_scale
-                # 旋转时清空平移
-                twist.linear.x = 0.0
-                twist.linear.y = 0.0
+                if hat_x < 0:
+                    twist.linear.y = self.linear_scale
+                elif hat_x > 0:
+                    twist.linear.y = -self.linear_scale
 
         self.pub.publish(twist)
 
