@@ -42,7 +42,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 from builtin_interfaces.msg import Time
 from cv_bridge import CvBridge
 
@@ -101,14 +101,16 @@ class LekiwiBaseNode(Node):
         # use_cameras: 是否启用摄像头
         # 默认 False，因为 Phase 1 不需要摄像头
         self.declare_parameter('use_cameras', False)
+        self.declare_parameter('compress_images', True)  # 默认启用JPEG压缩
+        self.declare_parameter('jpeg_quality', 80)  # JPEG质量 1-100
 
-        # ============================================================
-        # 2. 读取参数值
-        # ============================================================
+        # 读取参数
         port = self.get_parameter('port').value
         robot_id = self.get_parameter('robot_id').value
         self.watchdog_timeout_ms = self.get_parameter('watchdog_timeout_ms').value
         self.use_cameras = self.get_parameter('use_cameras').value
+        self.compress_images = self.get_parameter('compress_images').value
+        self.jpeg_quality = self.get_parameter('jpeg_quality').value
 
         # ============================================================
         # 3. 初始化硬件（LeRobot）
@@ -186,22 +188,28 @@ class LekiwiBaseNode(Node):
             # 它将 numpy.ndarray (OpenCV 格式) 转换为 sensor_msgs/Image
             self.bridge = CvBridge()
             
+            # 使用 CompressedImage 减少 WiFi 带宽占用
+            # JPEG 压缩可将带宽降低 70-90%
+            msg_type = CompressedImage if self.compress_images else Image
+            suffix = '/compressed' if self.compress_images else ''
+            
             # front 摄像头发布者
             self.image_pubs['front'] = self.create_publisher(
-                Image,                        # 消息类型
-                '/camera/front/image_raw',    # 话题名称
-                10                            # QoS 队列深度
+                msg_type,
+                f'/camera/front/image_raw{suffix}',
+                10
             )
             
             # wrist 摄像头发布者
             self.image_pubs['wrist'] = self.create_publisher(
-                Image,
-                '/camera/wrist/image_raw',
+                msg_type,
+                f'/camera/wrist/image_raw{suffix}',
                 10
             )
             
+            compression_info = ' (JPEG compressed)' if self.compress_images else ' (uncompressed)'
             self.get_logger().info(
-                '摄像头图像将发布到: /camera/front/image_raw, /camera/wrist/image_raw'
+                f'摄像头图像将发布到: /camera/front/image_raw{suffix}, /camera/wrist/image_raw{suffix}{compression_info}'
             )
 
         # ============================================================
@@ -429,10 +437,23 @@ class LekiwiBaseNode(Node):
                     
                     # 发布图像
                     if isinstance(frame, np.ndarray) and frame.ndim == 3:
-                        img_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
-                        img_msg.header.stamp = self.get_clock().now().to_msg()
-                        img_msg.header.frame_id = f'{cam_key}_camera'
-                        self.image_pubs[cam_key].publish(img_msg)
+                        if self.compress_images:
+                            # JPEG 压缩：节省 70-90% WiFi 带宽
+                            import cv2
+                            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
+                            _, compressed = cv2.imencode('.jpg', frame, encode_param)
+                            
+                            msg = CompressedImage()
+                            msg.header.stamp = self.get_clock().now().to_msg()
+                            msg.header.frame_id = f'{cam_key}_camera'
+                            msg.format = 'jpeg'
+                            msg.data = compressed.tobytes()
+                            self.image_pubs[cam_key].publish(msg)
+                        else:
+                            img_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+                            img_msg.header.stamp = self.get_clock().now().to_msg()
+                            img_msg.header.frame_id = f'{cam_key}_camera'
+                            self.image_pubs[cam_key].publish(img_msg)
                     
                     # 每次读取后休眠10ms，释放GIL给控制线程
                     time.sleep(0.01)

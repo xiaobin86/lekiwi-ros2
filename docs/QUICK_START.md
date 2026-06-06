@@ -59,20 +59,22 @@ python tools/topic_monitor.py /cmd_vel
 
 ### 3. 查看摄像头图像（可选）
 
-启动 PC 端时加上 `show_camera:=true`：
+启动 PC 端时加上 `show_camera:=true`，会同时显示 front 和 wrist 两个摄像头：
 
 ```powershell
-# 一键启动手柄 + 摄像头显示
+# 一键启动手柄 + 双摄像头显示
 ros2 launch lekiwi_bringup pc_teleop.launch.py show_camera:=true
 
-# 指定 wrist 摄像头
-ros2 launch lekiwi_bringup pc_teleop.launch.py show_camera:=true camera_topic:=/camera/wrist/image_raw
-
-# 如果颜色偏蓝/红，启用RGB转换
-ros2 launch lekiwi_bringup pc_teleop.launch.py show_camera:=true convert_rgb:=true
+# 如果颜色偏蓝/红，禁用RGB转换
+ros2 launch lekiwi_bringup pc_teleop.launch.py show_camera:=true convert_rgb:=false
 ```
 
 按 **Q** 退出图像窗口。
+
+> **注意**：树莓派端默认使用 JPEG 压缩传输图像（节省 70-90% WiFi 带宽）。如果图像质量不够，可在树莓派启动时禁用压缩：
+> ```bash
+> ros2 launch lekiwi_bringup pi_base.launch.py use_cameras:=true compress_images:=false
+> ```
 
 ---
 

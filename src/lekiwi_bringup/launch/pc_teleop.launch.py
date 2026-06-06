@@ -19,11 +19,8 @@ def generate_launch_description():
     # 基础启动（仅手柄+底盘控制）
     ros2 launch lekiwi_bringup pc_teleop.launch.py
     
-    # 显示front摄像头（默认）
+    # 显示两个摄像头（front + wrist）
     ros2 launch lekiwi_bringup pc_teleop.launch.py show_camera:=true
-    
-    # 显示两个摄像头
-    ros2 launch lekiwi_bringup pc_teleop.launch.py show_camera:=true show_wrist:=true
     
     # 如果颜色偏蓝/红，禁用RGB转换
     ros2 launch lekiwi_bringup pc_teleop.launch.py show_camera:=true convert_rgb:=false
@@ -44,12 +41,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'show_camera',
             default_value='false',
-            description='是否显示front摄像头 (true/false)'
-        ),
-        DeclareLaunchArgument(
-            'show_wrist',
-            default_value='false',
-            description='是否显示wrist摄像头 (true/false)'
+            description='是否显示摄像头图像 (true=显示front+wrist)'
         ),
         DeclareLaunchArgument(
             'convert_rgb',
@@ -86,7 +78,7 @@ def generate_launch_description():
             arguments=['-m', 'lekiwi_teleop.image_viewer'],
             name='image_viewer_front',
             parameters=[{
-                'topic': '/camera/front/image_raw',
+                'topic': '/camera/front/image_raw/compressed',
                 'window_name': 'Front Camera',
                 'convert_rgb': LaunchConfiguration('convert_rgb'),
             }],
@@ -103,13 +95,13 @@ def generate_launch_description():
             arguments=['-m', 'lekiwi_teleop.image_viewer'],
             name='image_viewer_wrist',
             parameters=[{
-                'topic': '/camera/wrist/image_raw',
+                'topic': '/camera/wrist/image_raw/compressed',
                 'window_name': 'Wrist Camera',
                 'convert_rgb': LaunchConfiguration('convert_rgb'),
             }],
             output='screen',
             condition=IfCondition(
-                PythonExpression(["'", LaunchConfiguration('show_wrist'), "' == 'true'"])
+                PythonExpression(["'", LaunchConfiguration('show_camera'), "' == 'true'"])
             ),
         ),
     ])
