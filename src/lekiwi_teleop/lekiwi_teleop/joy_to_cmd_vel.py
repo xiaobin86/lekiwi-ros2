@@ -38,30 +38,32 @@ class JoyToCmdVel(Node):
     def joy_callback(self, msg):
         twist = Twist()
 
-        # 完全按照 client_pc.py 的逻辑映射
-        # joy_node 输出: axes[6]=hat_x (左=-1, 右=1), axes[7]=hat_y (上=1, 下=-1)
+        # 注意：joy_node (SDL2) 的 hat_x 极性与 pygame 相反
+        # joy_node 输出: axes[6]=hat_x (左=1, 右=-1), axes[7]=hat_y (上=1, 下=-1)
         # RB = buttons[7]
         if len(msg.axes) >= 8:
             hat_x = msg.axes[6]
             hat_y = msg.axes[7]
             rb = msg.buttons[7] if len(msg.buttons) > 7 else 0
 
-            if rb and hat_x < 0:
-                # RB + 左 = 逆时针旋转
+            if rb and hat_x > 0:
+                # RB + 左 (hat_x=1) = 逆时针旋转
                 twist.angular.z = self.angular_scale
-            elif rb and hat_x > 0:
-                # RB + 右 = 顺时针旋转
+            elif rb and hat_x < 0:
+                # RB + 右 (hat_x=-1) = 顺时针旋转
                 twist.angular.z = -self.angular_scale
             else:
-                # D-pad 控制平移 (完全按照 client_pc.py)
+                # D-pad 控制平移
                 if hat_y > 0:
                     twist.linear.x = self.linear_scale
                 elif hat_y < 0:
                     twist.linear.x = -self.linear_scale
 
-                if hat_x < 0:
+                if hat_x > 0:
+                    # hat_x=1 对应左
                     twist.linear.y = self.linear_scale
-                elif hat_x > 0:
+                elif hat_x < 0:
+                    # hat_x=-1 对应右
                     twist.linear.y = -self.linear_scale
 
         self.pub.publish(twist)
