@@ -9,6 +9,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
+from builtin_interfaces.msg import Time
 from cv_bridge import CvBridge
 
 
@@ -52,15 +53,6 @@ class LekiwiBaseNode(Node):
         control_period = 1.0 / self.get_parameter('control_freq').value
         self.control_timer = self.create_timer(control_period, self.control_callback)
 
-        # 摄像头后台线程（避免阻塞 ROS2 控制循环）
-        self.camera_thread = None
-        self.camera_running = False
-        if self.use_cameras:
-            self.camera_running = True
-            self.camera_thread = threading.Thread(target=self._camera_loop, daemon=True)
-            self.camera_thread.start()
-            self.get_logger().info('摄像头后台线程已启动')
-
         # 当前动作缓存
         self.current_action = self._make_zero_action()
         self.action_lock = False  # 简单的动作锁
@@ -81,6 +73,15 @@ class LekiwiBaseNode(Node):
             self.get_logger().info(
                 '摄像头图像将发布到: /camera/front/image_raw, /camera/wrist/image_raw'
             )
+
+        # 摄像头后台线程（避免阻塞 ROS2 控制循环）
+        self.camera_thread = None
+        self.camera_running = False
+        if self.use_cameras:
+            self.camera_running = True
+            self.camera_thread = threading.Thread(target=self._camera_loop, daemon=True)
+            self.camera_thread.start()
+            self.get_logger().info('摄像头后台线程已启动')
 
         self.get_logger().info(
             f'LekiwiBaseNode started. '
@@ -174,6 +175,9 @@ class LekiwiBaseNode(Node):
 
     def _camera_loop(self):
         """摄像头后台线程循环（10Hz，不阻塞 ROS2 控制）。"""
+        self.get_logger().info('Camera thread started')
+        frame_count = 0
+
         while self.camera_running and rclpy.ok():
             if not self.use_cameras or not self.image_pubs:
                 time.sleep(0.1)
@@ -181,6 +185,14 @@ class LekiwiBaseNode(Node):
 
             try:
                 observation = self.robot.get_observation()
+                frame_count += 1
+
+                if frame_count % 30 == 0:  # 每3秒打印一次调试信息
+                    self.get_logger().info(
+                        f'Camera thread alive, frames={frame_count}, '
+                        f'obs_keys={list(observation.keys())}'
+                    )
+
                 self._publish_camera_images(observation)
             except Exception as e:
                 self.get_logger().warning(f'Camera thread error: {e}')
