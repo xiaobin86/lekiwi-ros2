@@ -50,6 +50,12 @@ class LekiwiBaseNode(Node):
         control_period = 1.0 / self.get_parameter('control_freq').value
         self.control_timer = self.create_timer(control_period, self.control_callback)
 
+        # 摄像头发布定时器（独立低频率，避免阻塞控制）
+        if self.use_cameras:
+            camera_period = 1.0 / 10.0  # 10Hz 发布图像
+            self.camera_timer = self.create_timer(camera_period, self.camera_callback)
+            self.get_logger().info('摄像头发布频率: 10Hz（独立于控制循环）')
+
         # 当前动作缓存
         self.current_action = self._make_zero_action()
         self.action_lock = False  # 简单的动作锁
@@ -155,22 +161,26 @@ class LekiwiBaseNode(Node):
         self.last_cmd_time = self.get_clock().now()
 
     def control_callback(self):
-        """定时向底盘发送动作指令，并发布摄像头图像。"""
+        """定时向底盘发送动作指令（纯控制循环，不包含摄像头）。"""
         try:
             self.robot.send_action(self.current_action)
-
-            # 发布摄像头图像
-            if self.use_cameras and self.image_pubs:
-                self._publish_camera_images()
-
         except Exception as e:
             self.get_logger().error(f'Failed to send action: {e}')
 
-    def _publish_camera_images(self):
-        """读取并发布两个摄像头图像到对应 topic。"""
+    def camera_callback(self):
+        """独立的摄像头图像发布回调（10Hz，不阻塞控制）。"""
+        if not self.use_cameras or not self.image_pubs:
+            return
+
         try:
             observation = self.robot.get_observation()
+            self._publish_camera_images(observation)
+        except Exception as e:
+            self.get_logger().warning(f'Camera publish failed: {e}')
 
+    def _publish_camera_images(self, observation: dict):
+        """发布两个摄像头图像到对应 topic。"""
+        try:
             # 发布 front 摄像头 (/dev/video2)
             if 'front' in observation and 'front' in self.image_pubs:
                 front_img = observation['front']
