@@ -238,11 +238,17 @@ class LekiwiBaseNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = LekiwiBaseNode()
+
+    # 使用多线程执行器，让 control 和 camera 并行
+    executor = rclpy.executors.MultiThreadedExecutor()
+    executor.add_node(node)
+
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
+        executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()
 
