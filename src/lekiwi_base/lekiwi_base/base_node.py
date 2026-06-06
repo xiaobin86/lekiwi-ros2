@@ -280,7 +280,7 @@ class LekiwiBaseNode(Node):
                         height=480,                      # 高度（像素）
                         fps=30,                          # 帧率
                         warmup_s=3,                      # 预热 3 秒（曝光稳定）
-                        rotation=Cv2Rotation.ROTATE_180, # 旋转 180 度（安装方向）
+                        # front 摄像头正装，不需要旋转
                     ),
                     "wrist": OpenCVCameraConfig(
                         index_or_path="/dev/video0",    # wrist 摄像头设备

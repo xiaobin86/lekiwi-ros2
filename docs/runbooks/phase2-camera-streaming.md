@@ -63,7 +63,7 @@ config.cameras = {
         height=480,
         fps=30,
         warmup_s=3,                    # 预热 3 秒
-        rotation=Cv2Rotation.ROTATE_180,
+        # front 正装，不旋转
     ),
     "wrist": OpenCVCameraConfig(
         index_or_path="/dev/video0",  # wrist 摄像头设备
