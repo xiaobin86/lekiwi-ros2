@@ -76,6 +76,60 @@ config.cameras = {
 }
 ```
 
+#### 1.4 JPEG 压缩（推荐）
+
+为减少 WiFi 带宽占用（两个摄像头原始数据约 9 MB/s），启用 JPEG 压缩：
+
+```python
+# 在 __init__ 中声明参数
+self.declare_parameter('compress_images', True)
+self.declare_parameter('jpeg_quality', 80)
+
+# 根据参数选择消息类型
+compress_images = self.get_parameter('compress_images').value
+jpeg_quality = self.get_parameter('jpeg_quality').value
+
+if compress_images:
+    msg_type = CompressedImage
+    suffix = '/compressed'
+else:
+    msg_type = Image
+    suffix = ''
+
+# 创建发布者（带压缩后缀的话题）
+self.image_pubs['front'] = self.create_publisher(
+    msg_type, f'/camera/front/image_raw{suffix}', 10
+)
+```
+
+**带宽对比**：
+| 格式 | 单帧大小 | 5Hz 带宽 | 备注 |
+|------|---------|---------|------|
+| 原始 RGB | ~0.9 MB | ~4.5 MB/s | 两个摄像头 ~9 MB/s |
+| JPEG (Q=80) | ~50-100 KB | ~250-500 KB/s | 节省 90%+ 带宽 |
+
+**树莓派端编码**：
+```python
+import cv2
+encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality]
+_, compressed = cv2.imencode('.jpg', frame, encode_param)
+
+msg = CompressedImage()
+msg.header.stamp = self.get_clock().now().to_msg()
+msg.header.frame_id = f'{cam_key}_camera'
+msg.format = 'jpeg'
+msg.data = compressed.tobytes()
+self.image_pubs[cam_key].publish(msg)
+```
+
+**PC 端解码**：
+```python
+import numpy as np
+np_arr = np.frombuffer(msg.data, np.uint8)
+cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+```
+```
+
 #### 1.4 发布摄像头图像
 
 在 `control_callback` 中，每次控制循环时读取并发布图像：
@@ -169,14 +223,14 @@ python -m lekiwi_teleop.joy_to_cmd_vel
 #### 3. PC：启动图像查看器
 
 ```powershell
-cd D:\work\lerobot-workspace\lerobot-ros2\tools
-conda activate ros2
-
-# 查看 front 摄像头
-python image_viewer.py --ros-args -p topic:=/camera/front/image_raw
+# 查看 front 摄像头（JPEG 压缩话题）
+python -m lekiwi_teleop.image_viewer --ros-args -p topic:=/camera/front/image_raw/compressed
 
 # 或查看 wrist 摄像头
-python image_viewer.py --ros-args -p topic:=/camera/wrist/image_raw
+python -m lekiwi_teleop.image_viewer --ros-args -p topic:=/camera/wrist/image_raw/compressed
+
+# 如果颜色偏蓝/红，禁用 RGB 转换
+python -m lekiwi_teleop.image_viewer --ros-args -p topic:=/camera/front/image_raw/compressed -p convert_rgb:=false
 ```
 
 ### 验证
@@ -185,7 +239,11 @@ python image_viewer.py --ros-args -p topic:=/camera/wrist/image_raw
 
 ```powershell
 ros2 topic list | findstr camera
-# 输出：
+# 输出（JPEG 压缩）：
+# /camera/front/image_raw/compressed
+# /camera/wrist/image_raw/compressed
+# 
+# 或（未压缩）：
 # /camera/front/image_raw
 # /camera/wrist/image_raw
 ```
@@ -193,8 +251,8 @@ ros2 topic list | findstr camera
 检查图像发布频率：
 
 ```powershell
-ros2 topic hz /camera/front/image_raw
-# 约 30 Hz
+ros2 topic hz /camera/front/image_raw/compressed
+# 约 5 Hz（摄像头线程频率）
 ```
 
 ## 摄像头配置详情
@@ -204,9 +262,11 @@ ros2 topic hz /camera/front/image_raw
 | 设备路径 | `/dev/video2` | `/dev/video0` |
 | 分辨率 | 640x480 | 480x640 |
 | 帧率 | 30 fps | 30 fps |
-| 旋转 | 180° | 90° |
+| 旋转 | 不旋转 | 90° |
 | 预热时间 | 3 秒 | 3 秒 |
-| ROS Topic | `/camera/front/image_raw` | `/camera/wrist/image_raw` |
+| ROS Topic (原始) | `/camera/front/image_raw` | `/camera/wrist/image_raw` |
+| ROS Topic (压缩) | `/camera/front/image_raw/compressed` | `/camera/wrist/image_raw/compressed` |
+| 发布频率 | 5 Hz (摄像头线程) | 5 Hz (摄像头线程) |
 
 ## 关键设计决策
 
@@ -215,24 +275,37 @@ ros2 topic hz /camera/front/image_raw
    - 通过 `cv_bridge` 进行 ROS2 ↔ OpenCV 转换
    - 符合 ROS2 图像管道标准，可与其他 ROS2 工具兼容
 
-2. **双摄像头独立 Topic**
+2. **JPEG 压缩传输（关键优化）**
+   - 原始图像两个摄像头约 9 MB/s，远超家庭 WiFi 带宽
+   - JPEG 压缩后带宽降至 ~500 KB/s，节省 90%+
+   - 不影响底盘控制实时性（30Hz 控制循环不受阻塞）
+   - 质量参数可配置（默认 Q=80，平衡质量和带宽）
+
+3. **双摄像头独立 Topic**
    - front 和 wrist 分别发布到不同 Topic
    - PC 端可独立订阅，灵活选择查看哪个视角
    - 为后续多视角算法预留接口
 
-3. **warmup 机制**
+4. **warmup 机制**
    - 摄像头初始化后等待 3 秒，确保曝光稳定
    - 避免启动时图像过曝/欠曝
 
-4. **OpenCV 查看器**
+5. **OpenCV 查看器**
    - 轻量级，无需安装 `rqt`
    - 支持实时显示，按 Q 退出
    - 可在低配置 PC 上流畅运行
 
+6. **发布频率优化**
+   - 摄像头线程运行在独立 Python 线程（非 ROS2 Timer）
+   - 频率降至 5Hz（而非摄像头的 30fps），减少 CPU 占用
+   - 检查订阅者数量，无人查看时自动休眠
+
 ## 文件变更
 
-- `src/lekiwi_base/lekiwi_base/base_node.py` - 添加图像发布逻辑
-- `tools/image_viewer.py` - 新增 PC 端查看器
+- `src/lekiwi_base/lekiwi_base/base_node.py` - 添加图像发布逻辑 + JPEG 压缩
+- `src/lekiwi_teleop/lekiwi_teleop/image_viewer.py` - PC 端查看器（支持 CompressedImage）
+- `src/lekiwi_bringup/launch/pi_base.launch.py` - 添加 compress_images 和 jpeg_quality 参数
+- `src/lekiwi_bringup/launch/pc_teleop.launch.py` - 添加摄像头查看器节点
 
 ---
 
@@ -241,3 +314,4 @@ ros2 topic hz /camera/front/image_raw
 | 日期 | 操作 | 内容摘要 |
 |------|------|---------|
 | 2026-06-06 | 创建 | Phase 2 初始版本，双摄像头 ROS2 传输 |
+| 2026-06-07 | 更新 | 添加 JPEG 压缩传输（节省 90% WiFi 带宽），优化摄像头线程频率至 5Hz |

@@ -17,6 +17,28 @@ import numpy as np
 
 
 class ImageViewer(Node):
+    """ROS2 图像查看器节点。
+    
+    【设计模式】
+    这是一个"消费者"节点，只订阅不发布：
+    Input → Display
+    /camera/... → OpenCV 窗口
+    
+    【支持的格式】
+    1. sensor_msgs/Image (未压缩)：通过 cv_bridge 转换
+    2. sensor_msgs/CompressedImage (JPEG)：直接解码，节省带宽
+    
+    【使用场景】
+    - PC 端查看树莓派摄像头图像
+    - 调试摄像头标定和视角
+    - 监控机器人运行状态
+    
+    【性能考虑】
+    cv2.imshow() 需要在主线程中调用（OpenCV 限制）。
+    因此不能直接在回调中使用，而是通过回调更新数据，
+    在主循环中统一显示。
+    """
+    
     def __init__(self):
         super().__init__('image_viewer')
 

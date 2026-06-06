@@ -35,6 +35,16 @@ def generate_launch_description():
             default_value='false',
             description='是否启用摄像头'
         ),
+        DeclareLaunchArgument(
+            'compress_images',
+            default_value='true',
+            description='是否启用 JPEG 压缩（节省 WiFi 带宽）'
+        ),
+        DeclareLaunchArgument(
+            'jpeg_quality',
+            default_value='80',
+            description='JPEG 压缩质量 (1-100)'
+        ),
 
         # lekiwi_base_node：/cmd_vel → 底盘
         Node(
@@ -47,6 +57,8 @@ def generate_launch_description():
                 'watchdog_timeout_ms': LaunchConfiguration('watchdog_timeout_ms'),
                 'control_freq': LaunchConfiguration('control_freq'),
                 'use_cameras': LaunchConfiguration('use_cameras'),
+                'compress_images': LaunchConfiguration('compress_images'),
+                'jpeg_quality': LaunchConfiguration('jpeg_quality'),
             }],
             output='screen',
         ),

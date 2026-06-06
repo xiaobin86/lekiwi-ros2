@@ -17,7 +17,7 @@
 | 阶段 | 目标 | 状态 |
 |------|------|------|
 | Phase 1 | 手柄遥控底盘移动 | ✅ 已完成 |
-| Phase 2 | 加入摄像头、状态反馈、可视化 | ✅ 已完成 |
+| Phase 2 | 加入摄像头、JPEG 压缩传输、可视化 | ✅ 已完成 |
 | Phase 3 | 机械臂遥操作 + 数据记录 | 🚧 待开发 |
 | Phase 4 | 里程计 + SLAM + 导航 | 📋 规划中 |
 | Phase 5 | 模仿学习 + 策略部署 | 📋 规划中 |
@@ -61,8 +61,8 @@ lerobot-ros2/
 ├── src/                           # ROS2 包
 │   ├── lekiwi_teleop/             # PC 端遥操作
 │   │   ├── lekiwi_teleop/
-│   │   │   ├── joy_to_cmd_vel.py      # joy → cmd_vel 转换
-│   │   │   └── image_viewer.py        # 摄像头图像显示
+│   │   │   ├── joy_to_cmd_vel.py      # joy → cmd_vel 转换（PC 端）
+│   │   │   └── image_viewer.py        # 摄像头图像显示（PC 端，支持 JPEG 压缩）
 │   │   └── setup.py
 │   ├── lekiwi_base/               # 树莓派端底盘驱动
 │   │   ├── lekiwi_base/
@@ -83,7 +83,7 @@ lerobot-ros2/
 
 - ✅ **跨平台**：PC (Windows 11) ↔ 树莓派 (Ubuntu 24.04)
 - ✅ **标准 ROS2**：使用 `geometry_msgs/Twist`、`sensor_msgs/Joy`、`sensor_msgs/Image`
-- ✅ **双摄像头**：front (/dev/video2) + wrist (/dev/video0)，独立 Topic 发布
+- ✅ **双摄像头**：front (/dev/video2) + wrist (/dev/video0)，独立 Topic 发布，支持 JPEG 压缩（节省 90% WiFi 带宽）
 - ✅ **安全保护**：看门狗超时自动停车
 - ✅ **调试友好**：变化检测监视器、手柄映射测试工具
 
