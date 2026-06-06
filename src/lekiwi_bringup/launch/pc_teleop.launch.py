@@ -30,10 +30,6 @@ def generate_launch_description():
         ),
 
         # joy_node: ROS2官方手柄节点
-        # 使用joy_node而非custom_joy_node，因为:
-        # 1. joy_node原生支持Alante Li手柄
-        # 2. 不需要SDL_GAMECONTROLLERCONFIG
-        # 3. D-pad映射为hat(axes[6], axes[7])
         Node(
             package='joy',
             executable='joy_node',

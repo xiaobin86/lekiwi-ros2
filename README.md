@@ -61,9 +61,7 @@ lerobot-ros2/
 ├── src/                           # ROS2 包
 │   ├── lekiwi_teleop/             # PC 端遥操作
 │   │   ├── lekiwi_teleop/
-│   │   │   ├── custom_joy_node.py     # pygame 手柄节点（备用）
-│   │   │   ├── joy_to_cmd_vel.py      # joy → cmd_vel 转换
-│   │   │   └── teleop_node.py         # 完整遥操作节点
+│   │   │   └── joy_to_cmd_vel.py      # joy → cmd_vel 转换
 │   │   └── setup.py
 │   ├── lekiwi_base/               # 树莓派端底盘驱动
 │   │   ├── lekiwi_base/

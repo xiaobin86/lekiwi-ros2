@@ -297,9 +297,7 @@ lerobot-ros2/
     ├── lekiwi_teleop/                     # PC 端遥操作包
     │   ├── lekiwi_teleop/
     │   │   ├── __init__.py
-    │   │   ├── joy_to_cmd_vel.py          # joy → cmd_vel 转换
-    │   │   ├── custom_joy_node.py         # pygame 手柄节点（备用）
-    │   │   └── teleop_node.py             # 完整遥操作（未来用）
+    │   │   └── joy_to_cmd_vel.py          # joy → cmd_vel 转换
     │   ├── package.xml
     │   ├── setup.py
     │   └── resource/lekiwi_teleop

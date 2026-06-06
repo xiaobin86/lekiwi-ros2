@@ -1,15 +1,15 @@
 # 遥操作参数配置
-lekiwi_teleop_node:
-  ros__parameters:
-    max_linear_speed: 0.5      # m/s
-    max_angular_speed: 90.0    # deg/s
-    speed_levels: [0.1, 0.3, 0.5]  # 慢/中/快
-    publish_rate: 20.0         # Hz
 
-# game_controller_node 参数
-game_controller_node:
+# joy_to_cmd_vel 参数
+joy_to_cmd_vel:
   ros__parameters:
-    device_id: 0
+    linear_scale: 0.5          # m/s
+    angular_scale: 1.0         # rad/s
+    deadzone: 0.1
+
+# joy_node 参数
+joy_node:
+  ros__parameters:
     deadzone: 0.05
     autorepeat_rate: 20.0
 
@@ -17,6 +17,7 @@ game_controller_node:
 lekiwi_base_node:
   ros__parameters:
     port: "/dev/ttyACM0"
+    robot_id: "lekiwi"
     watchdog_timeout_ms: 500
     control_freq: 30.0
     use_cameras: false
