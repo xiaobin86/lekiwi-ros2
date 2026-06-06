@@ -55,12 +55,21 @@ class LekiwiBaseNode(Node):
         self.action_lock = False  # 简单的动作锁
 
         # 图像发布（仅在启用摄像头时）
-        self.image_pub = None
+        self.image_pubs = {}
         self.bridge = None
         if self.use_cameras:
-            self.image_pub = self.create_publisher(Image, '/camera/image_raw', 10)
             self.bridge = CvBridge()
-            self.get_logger().info('摄像头图像将发布到 /camera/image_raw')
+            # front 摄像头
+            self.image_pubs['front'] = self.create_publisher(
+                Image, '/camera/front/image_raw', 10
+            )
+            # wrist 摄像头
+            self.image_pubs['wrist'] = self.create_publisher(
+                Image, '/camera/wrist/image_raw', 10
+            )
+            self.get_logger().info(
+                '摄像头图像将发布到: /camera/front/image_raw, /camera/wrist/image_raw'
+            )
 
         self.get_logger().info(
             f'LekiwiBaseNode started. '
@@ -73,6 +82,8 @@ class LekiwiBaseNode(Node):
         try:
             from lerobot.robots.lekiwi import LeKiwi
             from lerobot.robots.lekiwi.config_lekiwi import LeKiwiConfig
+            from lerobot.cameras.opencv import OpenCVCameraConfig
+            from lerobot.cameras import Cv2Rotation
         except ImportError as e:
             self.get_logger().fatal(f'Failed to import LeRobot: {e}')
             raise
@@ -81,6 +92,30 @@ class LekiwiBaseNode(Node):
             config = LeKiwiConfig(port=port, id=robot_id)
             if not self.use_cameras:
                 config.cameras = {}  # Phase 1 禁用摄像头
+            else:
+                # 使用正确的摄像头配置（包含 warmup 和 rotation）
+                config.cameras = {
+                    "front": OpenCVCameraConfig(
+                        index_or_path="/dev/video2",
+                        width=640,
+                        height=480,
+                        fps=30,
+                        warmup_s=3,
+                        rotation=Cv2Rotation.ROTATE_180,
+                    ),
+                    "wrist": OpenCVCameraConfig(
+                        index_or_path="/dev/video0",
+                        width=480,
+                        height=640,
+                        fps=30,
+                        warmup_s=3,
+                        rotation=Cv2Rotation.ROTATE_90,
+                    ),
+                }
+                self.get_logger().info(
+                    '摄像头配置: front=/dev/video2 (640x480, rot=180), '
+                    'wrist=/dev/video0 (480x640, rot=90), warmup=3s'
+                )
 
             self.robot = LeKiwi(config)
             self.robot.connect()
@@ -132,20 +167,27 @@ class LekiwiBaseNode(Node):
             self.get_logger().error(f'Failed to send action: {e}')
 
     def _publish_camera_images(self):
-        """读取并发布摄像头图像到 /camera/image_raw。"""
+        """读取并发布两个摄像头图像到对应 topic。"""
         try:
             observation = self.robot.get_observation()
 
-            # 找到图像数据（通常以 'observation.images.' 开头）
-            for key, value in observation.items():
-                if isinstance(value, np.ndarray) and value.ndim == 3:
-                    # 假设第一个摄像头是主摄像头
-                    # OpenCV 图像是 HWC (BGR)，直接转换
-                    img_msg = self.bridge.cv2_to_imgmsg(value, encoding='bgr8')
+            # 发布 front 摄像头 (/dev/video2)
+            if 'front' in observation and 'front' in self.image_pubs:
+                front_img = observation['front']
+                if isinstance(front_img, np.ndarray) and front_img.ndim == 3:
+                    img_msg = self.bridge.cv2_to_imgmsg(front_img, encoding='bgr8')
                     img_msg.header.stamp = self.get_clock().now().to_msg()
-                    img_msg.header.frame_id = 'camera'
-                    self.image_pub.publish(img_msg)
-                    break  # 只发布第一个摄像头
+                    img_msg.header.frame_id = 'front_camera'
+                    self.image_pubs['front'].publish(img_msg)
+
+            # 发布 wrist 摄像头 (/dev/video0)
+            if 'wrist' in observation and 'wrist' in self.image_pubs:
+                wrist_img = observation['wrist']
+                if isinstance(wrist_img, np.ndarray) and wrist_img.ndim == 3:
+                    img_msg = self.bridge.cv2_to_imgmsg(wrist_img, encoding='bgr8')
+                    img_msg.header.stamp = self.get_clock().now().to_msg()
+                    img_msg.header.frame_id = 'wrist_camera'
+                    self.image_pubs['wrist'].publish(img_msg)
 
         except Exception as e:
             self.get_logger().warning(f'Failed to publish camera image: {e}')
