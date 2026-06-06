@@ -2,6 +2,8 @@
 """树莓派端底盘驱动节点：接收 /cmd_vel，调用 LeRobot 驱动底盘。"""
 
 import math
+import threading
+import time
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -50,11 +52,14 @@ class LekiwiBaseNode(Node):
         control_period = 1.0 / self.get_parameter('control_freq').value
         self.control_timer = self.create_timer(control_period, self.control_callback)
 
-        # 摄像头发布定时器（独立低频率，避免阻塞控制）
+        # 摄像头后台线程（避免阻塞 ROS2 控制循环）
+        self.camera_thread = None
+        self.camera_running = False
         if self.use_cameras:
-            camera_period = 1.0 / 10.0  # 10Hz 发布图像
-            self.camera_timer = self.create_timer(camera_period, self.camera_callback)
-            self.get_logger().info('摄像头发布频率: 10Hz（独立于控制循环）')
+            self.camera_running = True
+            self.camera_thread = threading.Thread(target=self._camera_loop, daemon=True)
+            self.camera_thread.start()
+            self.get_logger().info('摄像头后台线程已启动')
 
         # 当前动作缓存
         self.current_action = self._make_zero_action()
@@ -167,16 +172,20 @@ class LekiwiBaseNode(Node):
         except Exception as e:
             self.get_logger().error(f'Failed to send action: {e}')
 
-    def camera_callback(self):
-        """独立的摄像头图像发布回调（10Hz，不阻塞控制）。"""
-        if not self.use_cameras or not self.image_pubs:
-            return
+    def _camera_loop(self):
+        """摄像头后台线程循环（10Hz，不阻塞 ROS2 控制）。"""
+        while self.camera_running and rclpy.ok():
+            if not self.use_cameras or not self.image_pubs:
+                time.sleep(0.1)
+                continue
 
-        try:
-            observation = self.robot.get_observation()
-            self._publish_camera_images(observation)
-        except Exception as e:
-            self.get_logger().warning(f'Camera publish failed: {e}')
+            try:
+                observation = self.robot.get_observation()
+                self._publish_camera_images(observation)
+            except Exception as e:
+                self.get_logger().warning(f'Camera thread error: {e}')
+
+            time.sleep(0.1)  # 10Hz
 
     def _publish_camera_images(self, observation: dict):
         """发布两个摄像头图像到对应 topic。"""
@@ -227,6 +236,12 @@ class LekiwiBaseNode(Node):
     def destroy_node(self):
         """清理资源。"""
         self.get_logger().info('Shutting down, stopping base...')
+
+        # 停止摄像头线程
+        if self.camera_thread is not None:
+            self.camera_running = False
+            self.camera_thread.join(timeout=1.0)
+
         try:
             self.robot.stop_base()
             self.robot.disconnect()
@@ -238,17 +253,11 @@ class LekiwiBaseNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = LekiwiBaseNode()
-
-    # 使用多线程执行器，让 control 和 camera 并行
-    executor = rclpy.executors.MultiThreadedExecutor()
-    executor.add_node(node)
-
     try:
-        executor.spin()
+        rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()
 
