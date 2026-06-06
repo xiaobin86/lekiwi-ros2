@@ -26,16 +26,12 @@ def generate_launch_description():
             description='发布频率 (Hz)'
         ),
 
-        # joy_node：读取手柄（支持非标准手柄如 Alante Li）
+        # 自定义 joy 节点（使用 pygame，绕过 SDL2 兼容性问题）
         Node(
-            package='joy',
-            executable='joy_node',
-            name='joy_node',
-            parameters=[{
-                'device_id': 0,
-                'deadzone': 0.05,
-                'autorepeat_rate': 20.0,
-            }],
+            package='lekiwi_teleop',
+            executable=sys.executable,
+            arguments=['-m', 'lekiwi_teleop.custom_joy_node'],
+            name='custom_joy_node',
             output='screen',
         ),
 

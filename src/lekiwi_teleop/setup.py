@@ -21,6 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'teleop_node = lekiwi_teleop.teleop_node:main',
+            'custom_joy_node = lekiwi_teleop.custom_joy_node:main',
         ],
     },
 )
