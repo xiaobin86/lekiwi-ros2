@@ -19,17 +19,19 @@ class LekiwiBaseNode(Node):
 
         # 声明参数
         self.declare_parameter('port', '/dev/ttyACM0')
+        self.declare_parameter('robot_id', 'lekiwi')
         self.declare_parameter('watchdog_timeout_ms', 500)
         self.declare_parameter('control_freq', 30.0)
         self.declare_parameter('use_cameras', False)
 
         # 读取参数
         port = self.get_parameter('port').value
+        robot_id = self.get_parameter('robot_id').value
         self.watchdog_timeout_ms = self.get_parameter('watchdog_timeout_ms').value
         self.use_cameras = self.get_parameter('use_cameras').value
 
         # 初始化 LeRobot
-        self._init_lerobot(port)
+        self._init_lerobot(port, robot_id)
 
         # 订阅 /cmd_vel
         self.cmd_sub = self.create_subscription(
@@ -55,7 +57,7 @@ class LekiwiBaseNode(Node):
             f'Cameras: {self.use_cameras}'
         )
 
-    def _init_lerobot(self, port: str):
+    def _init_lerobot(self, port: str, robot_id: str):
         """初始化 LeRobot LeKiwi。"""
         try:
             from lerobot.robots.lekiwi import LeKiwi
@@ -65,7 +67,7 @@ class LekiwiBaseNode(Node):
             raise
 
         try:
-            config = LeKiwiConfig(port=port, id="lekiwi")
+            config = LeKiwiConfig(port=port, id=robot_id)
             if not self.use_cameras:
                 config.cameras = {}  # Phase 1 禁用摄像头
 
