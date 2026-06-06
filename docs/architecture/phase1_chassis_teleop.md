@@ -4,11 +4,10 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.1 |
-| 日期 | 2026-06-05 |
-| 备注 | 已修正：joy_node→game_controller_node、D-pad映射、Windows支持说明 |
+| 版本 | v2.0 |
+| 日期 | 2026-06-06 |
 | 分支 | `feature/phase1-chassis-teleop` |
-| 目标 | 基于 ROS2 实现 PC 手柄 → WiFi → 树莓派 → LeKiwi 底盘遥控 |
+| 状态 | ✅ 已完成 |
 
 ---
 
@@ -16,13 +15,12 @@
 
 ### 1.1 目标
 
-使用 ROS2 作为通信与调度框架，在 PC 端通过 Xbox 手柄发送底盘运动指令，经 WiFi 传输到树莓派 5，由树莓派上的 ROS2 节点调用 LeRobot API 驱动 LeKiwi 底盘运动。
+使用 ROS2 作为通信与调度框架，在 PC 端通过游戏手柄发送底盘运动指令，经 WiFi 传输到树莓派 5，由树莓派上的 ROS2 节点调用 LeRobot API 驱动 LeKiwi 底盘运动。
 
 ### 1.2 范围
 
 - **包含**：手柄读取、速度指令映射、跨网络 Topic 传输、底盘执行
-- **不包含**：摄像头（Phase 2）、里程计/SLAM（Phase 3）、机械臂控制（Phase 4）、导航（Phase 4）
-- **学习方式**：Phase 1 重点理解 ROS2 的 Node、Topic、Message、Launch 核心概念
+- **不包含**：摄像头（Phase 2）、里程计/SLAM（Phase 4）、机械臂控制（Phase 3）、导航（Phase 5）
 
 ---
 
@@ -31,21 +29,10 @@
 | 组件 | 型号/配置 | 运行环境 | 职责 |
 |------|----------|----------|------|
 | 上位机 | AMD Ryzen 9 9955HX, RTX 5070Ti Laptop, Windows 11 | PC 端 | 运行手柄节点、遥操作节点、可视化 |
-| 树莓派 | Raspberry Pi 5 Model B, 8GB RAM | Ubuntu 24.04 / Raspberry Pi OS | 运行底盘驱动节点、连接 LeKiwi 硬件 |
+| 树莓派 | Raspberry Pi 5 Model B, 8GB RAM | Ubuntu 24.04 | 运行底盘驱动节点、连接 LeKiwi 硬件 |
 | 底盘 | LeKiwi（三轮全向底盘） | 树莓派端 | 接收速度指令，执行运动 |
-| 从臂 | SO101 Follower Arm (ID: R12552802) | 树莓派端 | **Phase 1 不启用** |
-| 主臂 | SO101 Leader Arm (ID: L07252802) | PC 端 | **Phase 1 不启用** |
-| 手柄 | Xbox Controller | PC 端 | 人机交互输入 |
+| 手柄 | Alante Li Wireless Controller | PC 端 | 人机交互输入 |
 | 通信 | WiFi（家庭局域网） | — | DDS 中间件自动处理 |
-
-### 2.1 LeKiwi 底盘关键参数
-
-- **驱动方式**：Kiwi Drive（三轮全向，120° 均匀分布）
-- **电机型号**：Feetech STS3215 × 3（ID: 7/8/9）
-- **串口**：`/dev/ttyACM0`
-- **轮子半径**：0.05 m
-- **底盘半径**：0.125 m（旋转中心到轮子距离）
-- **控制模式**：速度模式（`Operating_Mode = VELOCITY`）
 
 ---
 
@@ -54,126 +41,78 @@
 ### 3.1 总体架构图
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           PC 端 (Windows 11)                                 │
-│                                                                              │
-│   ┌──────────────┐         ┌─────────────────────────┐                      │
-│   │ Xbox 手柄    │  USB    │   game_controller_node  │                      │
-│   │ (物理设备)    │────────▶│   (joy package)         │                      │
-│   └──────────────┘         │   读取手柄原始状态        │                      │
-│                            │   发布 /joy              │                      │
-│                            └───────────┬─────────────┘                      │
-│                                        │ sensor_msgs/Joy                   │
-│                                        ▼                                    │
-│                            ┌─────────────────────────┐                      │
-│                            │   lekiwi_teleop_node    │                      │
-│                            │   (自定义 Python)        │                      │
-│                            │   - D-pad → 平移速度     │                      │
-│                            │   - RB+方向 → 旋转速度   │                      │
-│                            │   - LB → 切换速度档      │                      │
-│                            │   - START → 退出        │                      │
-│                            └───────────┬─────────────┘                      │
-│                                        │ geometry_msgs/Twist               │
-│                                        ▼                                    │
-│                            ┌─────────────────────────┐                      │
-│                            │   /cmd_vel (Topic)      │                      │
-│                            └───────────┬─────────────┘                      │
-│                                        │                                    │
-└────────────────────────────────────────┼────────────────────────────────────┘
-                                         │  DDS over WiFi
-                                         │  (ROS_DOMAIN_ID 一致)
-┌────────────────────────────────────────┼────────────────────────────────────┐
-│                     树莓派端 (Ubuntu)    │                                    │
-│                                        ▼                                    │
-│                            ┌─────────────────────────┐                      │
-│                            │   lekiwi_base_node      │                      │
-│                            │   (自定义 Python)        │                      │
-│                            │   订阅 /cmd_vel          │                      │
-│                            │   调用 LeRobot API       │                      │
-│                            │   看门狗安全保护         │                      │
-│                            └───────────┬─────────────┘                      │
-│                                        │                                    │
-│                            ┌───────────▼─────────────┐                      │
-│                            │   LeRobot LeKiwi        │                      │
-│                            │   - FeetechMotorsBus    │                      │
-│                            │   - /dev/ttyACM0        │                      │
-│                            │   - 速度模式控制        │                      │
-│                            └───────────┬─────────────┘                      │
-│                                        │ 串口指令                            │
-│                            ┌───────────▼─────────────┐                      │
-│                            │   LeKiwi 底盘           │                      │
-│                            │   (3×全向轮)            │                      │
-│                            └─────────────────────────┘                      │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+PC 端 (Windows 11)
+├── joy_node (ROS2 joy 包)
+│   └── 发布 /joy (sensor_msgs/Joy)
+├── joy_to_cmd_vel (自定义 Python)
+│   └── 订阅 /joy，发布 /cmd_vel (geometry_msgs/Twist)
+└── tools/image_viewer.py (可选，查看摄像头)
+
+WiFi (ROS2 DDS, ROS_DOMAIN_ID=42)
+
+树莓派端 (Ubuntu 24.04)
+└── base_node (自定义 Python)
+    ├── 订阅 /cmd_vel
+    ├── 调用 LeRobot API 驱动底盘
+    └── (Phase 2) 发布 /camera/front/image_raw, /camera/wrist/image_raw
 ```
 
 ### 3.2 架构分层说明
 
 | 层级 | PC 端 | 树莓派端 |
 |------|-------|---------|
-| **应用层** | `lekiwi_teleop_node`（键位映射、速度转换） | `lekiwi_base_node`（接收指令、安全监控） |
+| **应用层** | `joy_to_cmd_vel`（键位映射、速度转换） | `base_node`（接收指令、安全监控） |
 | **通信层** | ROS2 DDS（发布 `/joy`、`/cmd_vel`） | ROS2 DDS（订阅 `/cmd_vel`） |
-| **驱动层** | `joy` 驱动（操作系统手柄驱动） | LeRobot `LeKiwi` 类（串口通信） |
-| **硬件层** | Xbox 手柄 | Feetech STS3215 电机 × 3 |
+| **驱动层** | `joy` 驱动（SDL2） | LeRobot `LeKiwi` 类（串口通信） |
+| **硬件层** | Alante Li 手柄 | Feetech STS3215 电机 × 3 |
 
 ---
 
 ## 4. 节点详细设计
 
-### 4.1 game_controller_node（PC 端）
+### 4.1 joy_node（PC 端）
 
 - **来源**：ROS2 官方 `joy` 包
-- **作用**：使用 SDL2 Game Controller API 读取手柄，提供**跨平台一致的固定映射**
-- **为什么不用 `joy_node`**：`joy_node` 基于 SDL2 Joystick API，Windows 和 Linux 映射不一致（[GitHub Issue #176](https://github.com/ros-drivers/joystick_drivers/issues/176)）
+- **作用**：读取手柄，发布 `/joy`
+- **重要**：我们使用 `joy_node`（非 `game_controller_node`），因为 Alante Li 手柄的 D-pad 在 `joy_node` 中映射为 hat（axes），更符合实际使用
 - **发布 Topic**：`/joy`
 - **消息类型**：`sensor_msgs/Joy`
-- **运行方式**：`ros2 run joy game_controller_node --ros-args -p device_id:=0`
+- **运行方式**：`ros2 run joy joy_node`
 
-#### Joy 消息结构（game_controller_node 的 Xbox 固定映射）
+#### Joy 消息结构（Alante Li 手柄实际映射）
 
 ```yaml
 std_msgs/Header header
-float32[] axes      # 摇杆/扳机模拟值 [-1.0, 1.0]
-int32[] buttons     # 按钮状态 [0, 1]
+float32[] axes      # 6 axes + 2 hat axes = 8 total
+int32[] buttons     # 16 buttons
 ```
 
-**Axes 索引**：
+**Axes 索引**（经过 hat 追加后）：
 
-| 索引 | axes | 含义 |
-|------|------|------|
-| 0 | axes[0] | 左摇杆 X |
-| 1 | axes[1] | 左摇杆 Y |
-| 2 | axes[2] | 右摇杆 X |
-| 3 | axes[3] | 右摇杆 Y |
-| 4 | axes[4] | 左扳机 LT |
-| 5 | axes[5] | 右扳机 RT |
+| 索引 | 原始 axes | 含义 |
+|------|----------|------|
+| 0-5 | axes[0-5] | 摇杆/扳机（未使用） |
+| 6 | hat_x | D-pad 左右（左=1, 右=-1） |
+| 7 | hat_y | D-pad 上下（上=1, 下=-1） |
 
 **Buttons 索引**：
 
-| 索引 | buttons | 含义 |
-|------|---------|------|
-| 0 | buttons[0] | A |
-| 1 | buttons[1] | B |
-| 2 | buttons[2] | X |
-| 3 | buttons[3] | Y |
-| 4 | buttons[4] | BACK |
-| 5 | buttons[5] | GUIDE |
-| 6 | buttons[6] | START |
-| 7 | buttons[7] | 左摇杆按下 |
-| 8 | buttons[8] | 右摇杆按下 |
-| 9 | buttons[9] | LB（左肩键） |
-| 10 | buttons[10] | RB（右肩键） |
-| 11 | buttons[11] | DPAD_UP（方向键上） |
-| 12 | buttons[12] | DPAD_DOWN（方向键下） |
-| 13 | buttons[13] | DPAD_LEFT（方向键左） |
-| 14 | buttons[14] | DPAD_RIGHT（方向键右） |
+| 索引 | 含义 |
+|------|------|
+| 0 | A |
+| 1 | B |
+| 3 | X |
+| 4 | Y |
+| 6 | LB |
+| 7 | RB |
+| 10 | BACK |
+| 11 | START |
 
-> **注意**：`game_controller_node` 中 D-pad 是 buttons（11-14），不是 axes。这与 `joy_node` 完全不同。
+> **注意**：SDL2 joy_node 的 hat_x 极性与 pygame 相反：`左=+1, 右=-1`
 
 ---
 
-### 4.2 lekiwi_teleop_node（PC 端，自定义）
+### 4.2 joy_to_cmd_vel（PC 端，自定义）
 
 - **作用**：将 `/joy` 消息按 LeKiwi 键位规则转换为底盘速度指令
 - **订阅**：`/joy`
@@ -183,74 +122,48 @@ int32[] buttons     # 按钮状态 [0, 1]
 #### 核心逻辑
 
 ```python
-class LekiwiTeleopNode(Node):
-    def __init__(self):
-        super().__init__('lekiwi_teleop_node')
-        
-        # 声明参数
-        self.declare_parameter('max_linear_speed', 0.5)   # m/s
-        self.declare_parameter('max_angular_speed', 90.0) # deg/s
-        self.declare_parameter('speed_levels', [0.1, 0.3, 0.5])
-        
-        # 订阅 /joy
-        self.joy_sub = self.create_subscription(
-            Joy, '/joy', self.joy_callback, 10
-        )
-        
-        # 发布 /cmd_vel
-        self.cmd_pub = self.create_publisher(
-            Twist, '/cmd_vel', 10
-        )
-        
-        self.speed_index = 1  # 默认中速
-        self.prev_lb = False   # LB 边沿检测
-    
-    def joy_callback(self, msg: Joy):
-        # LB 切换速度档（边沿检测）
-        lb_current = msg.buttons[9] == 1
-        if lb_current and not self.prev_lb:
-            self.speed_index = (self.speed_index + 1) % 3
-        self.prev_lb = lb_current
-        
-        speed = self.speed_levels[self.speed_index]
-        
-        # D-pad 读取（game_controller_node 中 D-pad 是 buttons 11-14）
-        dpad_up = msg.buttons[11] == 1
-        dpad_down = msg.buttons[12] == 1
-        dpad_left = msg.buttons[13] == 1
-        dpad_right = msg.buttons[14] == 1
-        rb_pressed = msg.buttons[10] == 1
-        
+class JoyToCmdVel(Node):
+    def joy_callback(self, msg):
         twist = Twist()
         
-        if rb_pressed:
-            # RB + 左/右 = 原地旋转
-            if dpad_left:
-                twist.angular.z = math.radians(self.max_angular_speed)
-            elif dpad_right:
-                twist.angular.z = -math.radians(self.max_angular_speed)
-        else:
-            # 平移控制
-            if dpad_up:
-                twist.linear.x = speed          # 前进
-            elif dpad_down:
-                twist.linear.x = -speed         # 后退
+        if len(msg.axes) >= 8:
+            hat_x = msg.axes[6]   # D-pad 左右（SDL2: 左=1, 右=-1）
+            hat_y = msg.axes[7]   # D-pad 上下（上=1, 下=-1）
+            rb = msg.buttons[7]   # RB 按钮
             
-            if dpad_left:
-                twist.linear.y = speed          # 左平移
-            elif dpad_right:
-                twist.linear.y = -speed         # 右平移
+            if rb and hat_x > 0:
+                # RB + 左 = 逆时针旋转
+                twist.angular.z = self.angular_scale
+            elif rb and hat_x < 0:
+                # RB + 右 = 顺时针旋转
+                twist.angular.z = -self.angular_scale
+            else:
+                # 平移控制
+                if hat_y > 0:
+                    twist.linear.x = self.linear_scale    # 前进
+                elif hat_y < 0:
+                    twist.linear.x = -self.linear_scale   # 后退
+                
+                if hat_x > 0:
+                    twist.linear.y = self.linear_scale    # 左平移
+                elif hat_x < 0:
+                    twist.linear.y = -self.linear_scale   # 右平移
         
-        self.cmd_pub.publish(twist)
+        self.pub.publish(twist)
 ```
 
 ---
 
-### 4.3 lekiwi_base_node（树莓派端，自定义）
+### 4.3 base_node（树莓派端，自定义）
 
-- **作用**：接收 `/cmd_vel`，转换为 LeRobot action，驱动底盘，同时提供安全保护
+- **作用**：接收 `/cmd_vel`，转换为 LeRobot action，驱动底盘
 - **订阅**：`/cmd_vel`
-- **依赖**：LeRobot `LeKiwi` 类
+- **参数**：
+  - `port` (str): 串口路径，默认 `/dev/ttyACM0`
+  - `robot_id` (str): 机器人 ID，默认 `lekiwi`
+  - `watchdog_timeout_ms` (int): 看门狗超时，默认 500
+  - `control_freq` (float): 控制频率，默认 30.0
+  - `use_cameras` (bool): 启用摄像头，默认 False
 
 #### 核心逻辑
 
@@ -259,15 +172,8 @@ class LekiwiBaseNode(Node):
     def __init__(self):
         super().__init__('lekiwi_base_node')
         
-        # 声明参数
-        self.declare_parameter('port', '/dev/ttyACM0')
-        self.declare_parameter('watchdog_timeout_ms', 500)
-        
         # 初始化 LeRobot
-        from lerobot.robots.lekiwi import LeKiwi
-        from lerobot.robots.lekiwi.config_lekiwi import LeKiwiConfig
-        
-        config = LeKiwiConfig(port=self.get_parameter('port').value)
+        config = LeKiwiConfig(port='/dev/ttyACM0', id='lekiwi')
         self.robot = LeKiwi(config)
         self.robot.connect()
         
@@ -276,43 +182,45 @@ class LekiwiBaseNode(Node):
             Twist, '/cmd_vel', self.cmd_vel_callback, 10
         )
         
-        # 看门狗定时器
+        # 看门狗
         self.last_cmd_time = self.get_clock().now()
-        self.watchdog_timer = self.create_timer(0.1, self.watchdog_callback)
-    
-    def cmd_vel_callback(self, msg: Twist):
-        """收到速度指令，转换为 LeRobot action 并发送"""
-        action = {
-            "x.vel": msg.linear.x,           # m/s
-            "y.vel": msg.linear.y,           # m/s
-            "theta.vel": math.degrees(msg.angular.z),  # deg/s
-            # Phase 1 不控制机械臂，发送默认值
-            "arm_shoulder_pan.pos": 0.0,
-            "arm_shoulder_lift.pos": 0.0,
-            "arm_elbow_flex.pos": 0.0,
-            "arm_wrist_flex.pos": 0.0,
-            "arm_wrist_roll.pos": 0.0,
-            "arm_gripper.pos": 0.0,
-        }
+        self.watchdog_timer = self.create_timer(0.25, self.watchdog_callback)
         
-        self.robot.send_action(action)
+        # 控制循环
+        self.control_timer = self.create_timer(1/30, self.control_callback)
+    
+    def cmd_vel_callback(self, msg):
+        """收到速度指令，更新当前动作"""
+        self.current_action = self._make_zero_action()
+        self.current_action["x.vel"] = msg.linear.x
+        self.current_action["y.vel"] = msg.linear.y
+        self.current_action["theta.vel"] = math.degrees(msg.angular.z)
         self.last_cmd_time = self.get_clock().now()
+    
+    def control_callback(self):
+        """定时发送动作到底盘"""
+        self.robot.send_action(self.current_action)
     
     def watchdog_callback(self):
-        """看门狗：超时未收到指令则停止底盘"""
-        now = self.get_clock().now()
-        timeout = rclpy.duration.Duration(
-            seconds=self.get_parameter('watchdog_timeout_ms').value / 1000.0
-        )
-        
-        if now - self.last_cmd_time > timeout:
-            self.get_logger().warning("Watchdog timeout! Stopping base.")
-            self.robot.stop_base()
+        """超时未收到指令则停止"""
+        if (self.get_clock().now() - self.last_cmd_time) > timeout:
+            self.robot.send_action(self._make_zero_action())
 ```
 
-#### 看门狗机制说明
+#### 机械臂默认姿态
 
-LeRobot 的 `lekiwi_host.py` 自带 500ms 看门狗（`watchdog_timeout_ms`），我们的 ROS2 节点也独立实现一层看门狗，双重保护确保网络抖动或程序崩溃时底盘自动停车。
+当停止运动时，机械臂保持以下姿态（非零）：
+
+```python
+ARM_DEFAULTS = {
+    "arm_shoulder_pan.pos": 0.0,
+    "arm_shoulder_lift.pos": -100.0,
+    "arm_elbow_flex.pos": 90.0,
+    "arm_wrist_flex.pos": 70.0,
+    "arm_wrist_roll.pos": 0.0,
+    "arm_gripper.pos": 0.0,
+}
+```
 
 ---
 
@@ -322,8 +230,10 @@ LeRobot 的 `lekiwi_host.py` 自带 500ms 看门狗（`watchdog_timeout_ms`）�
 
 | Topic | 类型 | 发布者 | 订阅者 | 说明 |
 |-------|------|--------|--------|------|
-| `/joy` | `sensor_msgs/Joy` | `game_controller_node` | `lekiwi_teleop_node` | 手柄原始输入 |
-| `/cmd_vel` | `geometry_msgs/Twist` | `lekiwi_teleop_node` | `lekiwi_base_node` | 底盘速度指令 |
+| `/joy` | `sensor_msgs/Joy` | `joy_node` | `joy_to_cmd_vel` | 手柄原始输入 |
+| `/cmd_vel` | `geometry_msgs/Twist` | `joy_to_cmd_vel` | `base_node` | 底盘速度指令 |
+| `/camera/front/image_raw` | `sensor_msgs/Image` | `base_node` | `image_viewer` | front 摄像头 (Phase 2) |
+| `/camera/wrist/image_raw` | `sensor_msgs/Image` | `base_node` | `image_viewer` | wrist 摄像头 (Phase 2) |
 
 ### 5.2 geometry_msgs/Twist 字段说明
 
@@ -331,15 +241,15 @@ LeRobot 的 `lekiwi_host.py` 自带 500ms 看门狗（`watchdog_timeout_ms`）�
 geometry_msgs/Vector3 linear
   float64 x   # 前进/后退速度 (m/s)
   float64 y   # 左/右平移速度 (m/s)，全向底盘才有
-  float64 z   # 垂直方向，底盘固定为 0
+  float64 z   # 固定为 0
 
 geometry_msgs/Vector3 angular
-  float64 x   # 横滚角速度，固定为 0
-  float64 y   # 俯仰角速度，固定为 0
-  float64 z   # 偏航角速度 (rad/s)，正=逆时针
+  float64 x   # 固定为 0
+  float64 y   # 固定为 0
+  float64 z   # 偏航角速度 (rad/s)
 ```
 
-> **单位约定**：ROS2 标准中角速度使用 **rad/s**，但 LeRobot 内部使用 **deg/s**。在 `lekiwi_base_node` 中需要进行单位转换。
+> **单位约定**：ROS2 标准中角速度使用 **rad/s**，但 LeRobot 内部使用 **deg/s**。在 `base_node` 中需要进行单位转换。
 
 ---
 
@@ -349,32 +259,18 @@ geometry_msgs/Vector3 angular
 
 | 按键 | 功能 | Joy 消息 | 输出 |
 |------|------|----------|------|
-| D-pad 上 | 前进 | `buttons[11]` | `linear.x = +speed` |
-| D-pad 下 | 后退 | `buttons[12]` | `linear.x = -speed` |
-| D-pad 左 | 左平移 | `buttons[13]` | `linear.y = +speed` |
-| D-pad 右 | 右平移 | `buttons[14]` | `linear.y = -speed` |
-| RB + D-pad 左 | 逆时针旋转 | `buttons[10] + buttons[13]` | `angular.z = +max_angular` |
-| RB + D-pad 右 | 顺时针旋转 | `buttons[10] + buttons[14]` | `angular.z = -max_angular` |
-| LB（按下瞬间） | 切换速度档 | `buttons[9]` | Low → Medium → High → Low |
-| START | 退出程序 | `buttons[6]` | 发送零速度后节点退出 |
+| D-pad 上 | 前进 | `axes[7] = 1` | `linear.x = +speed` |
+| D-pad 下 | 后退 | `axes[7] = -1` | `linear.x = -speed` |
+| D-pad 左 | 左平移 | `axes[6] = 1` | `linear.y = +speed` |
+| D-pad 右 | 右平移 | `axes[6] = -1` | `linear.y = -speed` |
+| RB + D-pad 左 | 逆时针旋转 | `buttons[7] + axes[6]=1` | `angular.z = +scale` |
+| RB + D-pad 右 | 顺时针旋转 | `buttons[7] + axes[6]=-1` | `angular.z = -scale` |
 
-### 6.2 速度档位
+### 6.2 重要说明
 
-| 档位 | linear.x/y (m/s) | angular.z (deg/s) | 适用场景 |
-|------|------------------|-------------------|---------|
-| Slow (低速) | 0.1 | 30 | 精细调整、靠近目标 |
-| Medium (中速) | 0.3 | 60 | 常规移动 |
-| Fast (高速) | 0.5 | 90 | 长距离移动 |
-
-### 6.3 与之前 ZMQ 方案的对比
-
-| 特性 | ZMQ 方案（旧） | ROS2 方案（新） |
-|------|---------------|----------------|
-| 通信协议 | ZMQ PUSH/PULL | ROS2 DDS |
-| 消息格式 | JSON dict | 标准 ROS2 Message |
-| PC 端角色 | 直接发 action dict | 只发标准化速度指令 |
-| Pi 端角色 | 透明转发 | 本地硬件抽象+安全监控 |
-| 可扩展性 | 低（硬编码） | 高（任何节点可订阅/发布） |
+- **SDL2 hat_x 极性**：`joy_node` 中 `左=+1, 右=-1`（与 pygame 相反）
+- **D-pad 是 axes**：在 `joy_node` 中 D-pad 映射为 hat，追加到 axes 末尾（axes[6], axes[7]）
+- **不需要 SDL_GAMECONTROLLERCONFIG**：`joy_node` 原生支持 Alante Li 手柄
 
 ---
 
@@ -384,364 +280,102 @@ geometry_msgs/Vector3 angular
 lerobot-ros2/
 ├── README.md
 ├── .gitignore
+├── requirements.txt
 ├── docs/
-│   └── architecture/
-│       └── phase1_chassis_teleop.md      # 本文档
-│
-├── src/                                    # ROS2 工作空间 src 目录
-│   ├── lekiwi_teleop/                      # PC 端遥操作包
-│   │   ├── lekiwi_teleop/
-│   │   │   ├── __init__.py
-│   │   │   └── teleop_node.py              # 手柄→速度映射节点
-│   │   ├── package.xml
-│   │   ├── setup.py
-│   │   └── resource/lekiwi_teleop
-│   │
-│   ├── lekiwi_base/                        # 树莓派端底盘驱动包
-│   │   ├── lekiwi_base/
-│   │   │   ├── __init__.py
-│   │   │   └── base_node.py                # 速度指令→底盘节点
-│   │   ├── package.xml
-│   │   ├── setup.py
-│   │   └── resource/lekiwi_base
-│   │
-│   └── lekiwi_bringup/                     # 统一启动与配置
-│       ├── launch/
-│       │   ├── pc_teleop.launch.py         # PC 端启动
-│       │   └── pi_base.launch.py           # 树莓派端启动
-│       ├── config/
-│       │   └── teleop_config.yaml          # 速度档、按键映射参数
-│       ├── package.xml
-│       └── setup.py
-│
-└── requirements/                           # 非 ROS 依赖说明
-    └── requirements.txt
+│   ├── architecture/
+│   │   ├── phase1_chassis_teleop.md      # 本文档
+│   │   ├── installation-guide.md         # 环境安装
+│   │   └── pre-coding-research.md        # 预研文档
+│   └── runbooks/
+│       ├── phase2-camera-streaming.md    # Phase 2 摄像头
+│       └── topic-debugging.md            # 调试技巧
+├── tools/                                 # 调试工具
+│   ├── topic_monitor.py                  # Topic 变化监视器
+│   ├── test_gamepad.py                   # 手柄硬件测试
+│   └── image_viewer.py                   # ROS2 图像查看器
+└── src/                                   # ROS2 工作空间
+    ├── lekiwi_teleop/                     # PC 端遥操作包
+    │   ├── lekiwi_teleop/
+    │   │   ├── __init__.py
+    │   │   ├── joy_to_cmd_vel.py          # joy → cmd_vel 转换
+    │   │   ├── custom_joy_node.py         # pygame 手柄节点（备用）
+    │   │   └── teleop_node.py             # 完整遥操作（未来用）
+    │   ├── package.xml
+    │   ├── setup.py
+    │   └── resource/lekiwi_teleop
+    │
+    ├── lekiwi_base/                        # 树莓派端底盘驱动包
+    │   ├── lekiwi_base/
+    │   │   ├── __init__.py
+    │   │   └── base_node.py               # 底盘控制 + 摄像头
+    │   ├── package.xml
+    │   ├── setup.py
+    │   └── resource/lekiwi_base
+    │
+    └── lekiwi_bringup/                     # 统一启动与配置
+        ├── launch/
+        │   ├── pc_teleop.launch.py         # PC 端启动
+        │   └── pi_base.launch.py           # 树莓派端启动
+        ├── package.xml
+        └── setup.py
 ```
 
 ---
 
-## 8. ROS2 核心 API 说明
+## 8. 与后续阶段的衔接
 
-### 8.1 rclpy 常用 API
+### Phase 2：摄像头（已实现）
 
-```python
-import rclpy
-from rclpy.node import Node
+在 `base_node` 中启用 `use_cameras:=true`：
+- 读取 front (/dev/video2) 和 wrist (/dev/video0) 摄像头
+- 发布到 `/camera/front/image_raw` 和 `/camera/wrist/image_raw`
+- 摄像头读取在独立后台线程，不阻塞底盘控制
 
-# 初始化 ROS2
-rclpy.init()
+### Phase 3：机械臂遥操作
 
-# 创建节点
-node = Node('node_name')
+- 在 PC 端添加主臂读取节点
+- 在树莓派端扩展 `base_node` 控制从臂
+- 记录遥操作数据用于模仿学习
 
-# 声明参数（运行时可通过 launch/命令行修改）
-node.declare_parameter('param_name', default_value)
-value = node.get_parameter('param_name').value
+### Phase 4：里程计 + SLAM
 
-# 创建发布者
-pub = node.create_publisher(MessageType, '/topic_name', qos_profile=10)
+- 读取电机编码器位置计算里程计
+- 发布 `/odom` 和 `/tf`
+- 集成 Nav2 导航框架
 
-# 创建订阅者
-def callback(msg):
-    pass
-sub = node.create_subscription(MessageType, '/topic_name', callback, 10)
+---
 
-# 创建定时器
-timer = node.create_timer(period_sec=0.1, callback=timer_callback)
+## 9. 依赖与安装
 
-# 获取当前时间
-now = node.get_clock().now()
+详见 [installation-guide.md](installation-guide.md)
 
-# 打日志
-node.get_logger().info("message")
-node.get_logger().warning("message")
-node.get_logger().error("message")
-
-# 旋转节点（阻塞，处理回调）
-rclpy.spin(node)
-
-# 清理
-node.destroy_node()
-rclpy.shutdown()
-```
-
-### 8.2 QoS（服务质量）
-
-ROS2 使用 QoS 控制消息传输策略：
-
-| 策略 | 说明 | 场景 |
-|------|------|------|
-| **Reliability** | Reliable（可靠） vs Best Effort（尽力） | `/cmd_vel` 用 Best Effort 降低延迟 |
-| **Durability** | Volatile（易失） vs Transient Local（持久） | 配置话题可用 Transient Local |
-| **History** | Keep Last（保留 N 个） vs Keep All | 实时控制通常 Keep Last(1) |
-
-对于底盘控制，推荐 `/cmd_vel` 使用 **Best Effort + Keep Last(1)**，确保总是处理最新指令而非排队旧指令。
-
-### 8.3 ROS_DOMAIN_ID
-
-ROS2 默认使用 DDS 发现同一网络内所有节点。为避免与其他 ROS2 设备冲突：
-
+快速命令：
 ```bash
-# PC 端和树莓派端必须设置相同的 ID
-export ROS_DOMAIN_ID=42
+# PC 端
+conda activate ros2
+pip install -e src/lekiwi_teleop/
 
-# Windows PowerShell
-$env:ROS_DOMAIN_ID=42
+# 树莓派端
+conda activate ros2
+pip install -e src/lekiwi_base/
 ```
 
 ---
 
-## 9. 与后续阶段的衔接
+## 10. 调试工具
 
-### 9.1 Phase 2：摄像头与可视化
-
-在 `lekiwi_base_node` 中扩展：
-
-```python
-# 读取摄像头并发布
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
-
-self.image_pub = self.create_publisher(Image, '/camera/front', 10)
-self.bridge = CvBridge()
-
-# 在循环中
-frame = self.robot.cameras['front'].read()
-msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
-self.image_pub.publish(msg)
-```
-
-新增 Topic：
-- `/camera/front` (`sensor_msgs/Image`)
-- `/camera/wrist` (`sensor_msgs/Image`)
-- `/joint_states` (`sensor_msgs/JointState`) — 机械臂关节状态
-
-### 9.2 Phase 3：里程计（Odometry）
-
-#### 方案 A：速度积分（快速实现，有漂移）
-
-在 `lekiwi_base_node` 中：
-
-```python
-from nav_msgs.msg import Odometry
-from tf2_ros import TransformBroadcaster
-
-self.odom_pub = self.create_publisher(Odometry, '/odom', 10)
-self.tf_broadcaster = TransformBroadcaster(self)
-
-# 定时积分
-def odom_timer_callback(self):
-    obs = self.robot.get_observation()
-    vx, vy = obs['x.vel'], obs['y.vel']
-    vtheta = math.radians(obs['theta.vel'])
-    
-    # 积分（简化欧拉法）
-    dt = 0.05
-    self.x += (vx * math.cos(self.yaw) - vy * math.sin(self.yaw)) * dt
-    self.y += (vx * math.sin(self.yaw) + vy * math.cos(self.yaw)) * dt
-    self.yaw += vtheta * dt
-    
-    # 发布 Odometry 消息 + TF
-```
-
-#### 方案 B：编码器位置（精度更高）
-
-直接调用 Feetech 电机寄存器读取轮子累计角度：
-
-```python
-# LeRobot 底层支持，但 LeKiwi 类未封装
-wheel_positions = self.robot.bus.sync_read("Present_Position", self.robot.base_motors)
-```
-
-然后根据角度差反解车身位移，精度远高于速度积分。
-
-### 9.3 Phase 4：Nav2 导航
-
-Nav2 需要的标准接口：
-
-| 输入 | 来源 |
-|------|------|
-| `/cmd_vel` | Nav2 路径规划器输出 |
-| `/odom` | Phase 3 里程计节点 |
-| `/scan` 或 `/camera/depth` | 需外接激光雷达或深度相机 |
-| `/tf` (`odom → base_link`) | 里程计节点发布 |
-| `/map` | SLAM 建图节点 |
-
-### 9.4 为什么 Phase 1 不直接用 ros2_control？
-
-| 对比 | 当前方案 (LeRobot API) | ros2_control |
-|------|----------------------|-------------|
-| Phase 1 开发量 | 低 | 高 |
-| 需要 URDF | 否 | 是 |
-| 需要硬件接口插件 | 否 | 是 |
-| 学习曲线 | 平缓 | 陡峭 |
-| Nav2 兼容性 | 需要后续桥接 | 原生支持 |
-| **策略** | **先跑通，再渐进桥接** | 后续替换 |
-
----
-
-## 10. 依赖与安装
-
-### 10.1 PC 端（Windows 11）
-
-> ⚠️ **Windows 11 不是 ROS2 Jazzy 官方 Tier 1 支持平台**（官方仅支持 Windows 10）。以下方案基于社区实践，如遇问题建议改用 **WSL2 Ubuntu 24.04**。
-
-- **ROS2 Jazzy**：通过 `pixi` + conda-forge 安装预编译二进制包
-  ```powershell
-  # 下载 pixi.toml 和预编译包
-  irm https://raw.githubusercontent.com/ros2/ros2/refs/heads/jazzy/pixi.toml -OutFile pixi.toml
-  pixi install
-  # 下载 ros2-jazzy-*-windows-release-amd64.zip 并解压
-  pixi shell
-  call .\ros2-windows\local_setup.bat
-  ```
-- **Python**：由 pixi 环境管理（通常为 3.11/3.12）
-- **`joy` 包**：`ros2 run joy game_controller_node`（使用 `game_controller_node`，非 `joy_node`）
-- **手柄驱动**：Xbox 手柄 Windows 原生支持（SDL2 通过 DirectInput/XInput）
-- **防火墙**：首次运行 ROS2 节点时，Windows 会弹出防火墙提示，需**允许 Python/ROS2 通过防火墙**（勾选专用网络和公用网络）
-- **路径长度**：Windows 默认 260 字符限制可能影响 ROS2，建议修改注册表 `LongPathsEnabled`
-
-### 10.2 树莓派端（Ubuntu 24.04 for ARM64）
-
-- **ROS2 Jazzy**：ARM64 是 Tier 1 支持平台，可直接 apt 安装
-  ```bash
-  sudo apt install ros-jazzy-desktop
-  ```
-- **Python**：Ubuntu 24.04 默认 Python 3.12
-- **LeRobot 库**：从源码安装，启用 LeKiwi 支持
-  ```bash
-  cd ~/lerobot-workspace/lerobot
-  pip install -e ".[lekiwi]"
-  ```
-- **串口权限**：
-  ```bash
-  sudo usermod -aG dialout $USER
-  # 重新登录生效
-  ```
-
-### 10.3 跨平台通信注意事项
-
-- **统一 DDS**：两端都使用默认 `rmw_fastrtps_cpp`
-- **统一 DOMAIN_ID**：如 `42`（避免与邻居冲突）
-  ```bash
-  # Linux
-  export ROS_DOMAIN_ID=42
-  # Windows PowerShell
-  $env:ROS_DOMAIN_ID=42
-  ```
-- **多播排查**：如果 `ros2 topic list` 看不到对方节点
-  ```bash
-  # 树莓派发送
-  ros2 multicast send
-  # PC 接收
-  ros2 multicast receive
-  # 如果收不到 → 路由器阻止多播，改用 ROS_STATIC_PEERS
-  ```
-
-### 10.3 双方共同依赖
-
-```xml
-<!-- package.xml 中声明 -->
-<depend>rclpy</depend>
-<depend>std_msgs</depend>
-<depend>geometry_msgs</depend>
-<depend>sensor_msgs</depend>
-<depend>joy</depend>
-```
-
----
-
-## 11. 附录：LeRobot API 实情（基于源码）
-
-以下内容来自对 `D:\work\lerobot-workspace\lerobot\src\lerobot\robots\lekiwi\lekiwi.py` 的实际源码分析。
-
-### 11.1 LeKiwi 类提供的接口
-
-| 方法 | 功能 | 返回值 |
-|------|------|--------|
-| `connect()` | 连接串口、初始化电机 | None |
-| `disconnect()` | 停止底盘、断开连接 | None |
-| `send_action(action)` | 发送动作指令 | 实际发送的 action dict |
-| `get_observation()` | 读取当前状态 | observation dict |
-| `stop_base()` | 强制停止三个轮子 | None |
-
-### 11.2 get_observation() 实际返回内容
-
-```python
-{
-    # 机械臂关节位置（Phase 1 忽略）
-    "arm_shoulder_pan.pos":  float,
-    "arm_shoulder_lift.pos": float,
-    "arm_elbow_flex.pos":    float,
-    "arm_wrist_flex.pos":    float,
-    "arm_wrist_roll.pos":    float,
-    "arm_gripper.pos":       float,
-    
-    # 底盘速度（车身坐标系，瞬时反馈）
-    "x.vel":       float,   # m/s
-    "y.vel":       float,   # m/s
-    "theta.vel":   float,   # deg/s
-    
-    # 摄像头图像（如果有配置）
-    "front": np.ndarray,    # (H, W, 3) uint8
-    "wrist": np.ndarray,    # (H, W, 3) uint8
-}
-```
-
-### 11.3 速度反馈的来源
-
-```python
-# lekiwi.py:344-351
-base_wheel_vel = self.bus.sync_read("Present_Velocity", self.base_motors)
-base_vel = self._wheel_raw_to_body(
-    base_wheel_vel["base_left_wheel"],
-    base_wheel_vel["base_back_wheel"],
-    base_wheel_vel["base_right_wheel"],
-)
-```
-
-流程：
-1. 读取三个轮子的 `Present_Velocity` 寄存器（电机原始值）
-2. 通过 `_wheel_raw_to_body()` 逆运动学转换为车身坐标系速度
-3. 返回 `x.vel`, `y.vel`, `theta.vel`
-
-### 11.4 电机可用寄存器
-
-来自 `D:\work\lerobot-workspace\lerobot\src\lerobot\motors\feetech\tables.py`：
-
-| 寄存器名 | 地址 | 大小 | 读写 | 用途 |
-|---------|------|------|------|------|
-| `Goal_Position` | 42 | 2B | RW | 目标位置 |
-| `Goal_Velocity` | 46 | 2B | RW | 目标速度 |
-| `Present_Position` | 56 | 2B | RO | 当前位置（编码器值） |
-| `Present_Velocity` | 58 | 2B | RO | 当前速度 |
-| `Present_Load` | 60 | 2B | RO | 负载 |
-| `Present_Current` | 69 | 2B | RO | 电流 |
-
-### 11.5 关键结论
-
-1. **没有现成 odometry API**：LeRobot 不提供位姿积分，只返回瞬时速度。
-2. **可以读编码器位置**：通过 `bus.sync_read("Present_Position", base_motors)` 可以获取轮子累计角度，自己计算里程计。
-3. **运动学已封装**：`_body_to_wheel_raw()` 和 `_wheel_raw_to_body()` 已完成全向底盘的正逆运动学，但它们是私有方法。Phase 1 只需要 `send_action()`（正向），不需要直接调用。
-4. **底盘电机 ID**：`base_left_wheel=7`, `base_back_wheel=8`, `base_right_wheel=9`。
-
----
-
-## 12. 风险与注意事项
-
-| 风险 | 影响 | 缓解措施 |
-|------|------|---------|
-| Windows 手柄驱动映射与 Linux 不同 | joy 消息索引错位 | 实际测试时先用 `ros2 topic echo /joy` 确认 |
-| WiFi 延迟/丢包 | 底盘卡顿或失控 | 看门狗超时自动停车 |
-| DDS 网络冲突 | 与其他 ROS2 设备干扰 | 使用唯一 `ROS_DOMAIN_ID` |
-| LeRobot 速度单位 | `send_action` 用 deg/s，`Twist` 用 rad/s | `base_node` 中严格转换 |
-| 树莓派 CPU 负载 | DDS + LeRobot 可能占用较高 | 监控 `top`，必要时降低 publish 频率 |
+| 工具 | 用途 | 命令 |
+|------|------|------|
+| `topic_monitor.py` | 监视 Topic 变化（不刷屏） | `python tools/topic_monitor.py /joy` |
+| `test_gamepad.py` | 测试手柄硬件 | `python tools/test_gamepad.py` |
+| `image_viewer.py` | 查看摄像头图像 | `python tools/image_viewer.py --ros-args -p topic:=/camera/front/image_raw` |
 
 ---
 
 ## 版本迭代记录
 
-| 日期 | 操作 | 内容摘要 |
+| 日期 | 版本 | 内容摘要 |
 |------|------|---------|
-| 2026-06-05 | 创建 | 初始版本，基于对话整理完整 Phase 1 架构 |
-| 2026-06-05 | 修正 | v1.1：joy_node→game_controller_node、D-pad映射改为buttons、LB/RB/START索引修正、Windows11支持说明、防火墙提示 |
+| 2026-06-05 | v1.0 | 初始版本，基于 game_controller_node |
+| 2026-06-05 | v1.1 | 修正 D-pad 映射、Windows 支持说明 |
+| 2026-06-06 | v2.0 | **重大更新**：改用 joy_node、添加 hat 映射、添加 joy_to_cmd_vel、更新文件结构、添加调试工具 |

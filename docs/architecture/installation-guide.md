@@ -137,7 +137,28 @@ ros2 run joy game_controller_node --help
 | **activate.d hook** | `conda activate ros2` 后自动设置 | ✅ 推荐 |
 | Profile 函数 | 需额外执行 `ros2-env` | ⚠️ 容易遗忘 |
 
-### 2.6 安装开发依赖
+### 2.6 安装 cv_bridge（用于图像传输）
+
+Phase 2 摄像头功能需要 `cv_bridge`：
+
+```powershell
+conda activate ros2
+pip install cv-bridge
+```
+
+### 2.7 安装项目包
+
+```powershell
+cd D:\work\lerobot-workspace\lerobot-ros2
+
+# 安装 PC 端遥操作包
+pip install -e src/lekiwi_teleop/
+
+# 验证
+python -m lekiwi_teleop.joy_to_cmd_vel --help
+```
+
+### 2.8 安装开发依赖
 
 ```powershell
 # 在 ros2 环境中安装 pip 包

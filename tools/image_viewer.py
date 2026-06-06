@@ -17,20 +17,28 @@ class ImageViewer(Node):
 
         self.declare_parameter('topic', '/camera/image_raw')
         self.declare_parameter('window_name', 'LeKiwi Camera')
+        self.declare_parameter('convert_rgb', False)  # BGR→RGB 转换
 
         topic = self.get_parameter('topic').value
         self.window_name = self.get_parameter('window_name').value
+        self.convert_rgb = self.get_parameter('convert_rgb').value
 
         self.sub = self.create_subscription(Image, topic, self.image_callback, 10)
         self.bridge = CvBridge()
 
         self.get_logger().info(f'图像查看器已启动，订阅: {topic}')
+        if self.convert_rgb:
+            self.get_logger().info('颜色转换: BGR → RGB')
         self.get_logger().info('按 Q 键退出')
 
     def image_callback(self, msg):
         try:
             # ROS2 Image → OpenCV
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+
+            # 如果需要，转换 BGR → RGB
+            if self.convert_rgb:
+                cv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
 
             # 显示图像
             cv2.imshow(self.window_name, cv_image)
