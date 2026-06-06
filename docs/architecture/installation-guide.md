@@ -83,11 +83,11 @@ conda install colcon-common-extensions rosdep -y
 ### 2.4 安装 joy 包
 
 ```powershell
-# game_controller_node 在 joy 包中
+# joy_node 在 joy 包中
 conda install ros-jazzy-joy -y
 
 # 验证安装
-ros2 run joy game_controller_node --help
+ros2 run joy joy_node --help
 ```
 
 ### 2.5 配置 ROS2 环境变量自动加载
@@ -585,14 +585,14 @@ conda install ros-jazzy-ros-base -y
 | PC (Windows 11) | `ros-jazzy-desktop` | 有图形界面，后续要用 RViz2 |
 | 树莓派 (headless) | `ros-jazzy-ros-base` | 无显示器，不需要 GUI 工具 |
 
-### Q4: `game_controller_node` 找不到手柄？
+### Q4: `joy_node` 找不到手柄？
 
 ```bash
 # 枚举可用设备
 ros2 run joy joy_enumerate_devices
 
 # 指定设备名
-ros2 run joy game_controller_node --ros-args -p device_name:="Xbox Controller"
+ros2 run joy joy_node --ros-args -p device_name:="Alante Li Wireless Controller"
 ```
 
 ### Q5: `ros2 run` 报错 "Package not found"？

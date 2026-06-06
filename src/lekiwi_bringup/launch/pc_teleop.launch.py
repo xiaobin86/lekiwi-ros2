@@ -6,46 +6,50 @@ import sys
 
 
 def generate_launch_description():
-    """PC端启动：手柄遥操作。"""
+    """PC端启动：手柄遥操作。
+    
+    启动两个节点：
+    1. joy_node (ROS2官方): 读取手柄，发布 /joy
+    2. joy_to_cmd_vel (自定义): 订阅 /joy，转换为 /cmd_vel
+    
+    使用方法:
+    ros2 launch lekiwi_bringup pc_teleop.launch.py
+    """
 
     return LaunchDescription([
         # 参数声明
         DeclareLaunchArgument(
-            'max_linear_speed',
+            'linear_scale',
             default_value='0.5',
-            description='最大线速度 (m/s)'
+            description='线速度缩放 (m/s)'
         ),
         DeclareLaunchArgument(
-            'max_angular_speed',
-            default_value='90.0',
-            description='最大角速度 (deg/s)'
-        ),
-        DeclareLaunchArgument(
-            'publish_rate',
-            default_value='20.0',
-            description='发布频率 (Hz)'
+            'angular_scale',
+            default_value='1.0',
+            description='角速度缩放 (rad/s)'
         ),
 
-        # 自定义 joy 节点（使用 pygame，绕过 SDL2 兼容性问题）
+        # joy_node: ROS2官方手柄节点
+        # 使用joy_node而非custom_joy_node，因为:
+        # 1. joy_node原生支持Alante Li手柄
+        # 2. 不需要SDL_GAMECONTROLLERCONFIG
+        # 3. D-pad映射为hat(axes[6], axes[7])
         Node(
-            package='lekiwi_teleop',
-            executable=sys.executable,
-            arguments=['-m', 'lekiwi_teleop.custom_joy_node'],
-            name='custom_joy_node',
+            package='joy',
+            executable='joy_node',
+            name='joy_node',
             output='screen',
         ),
 
-        # lekiwi_teleop_node：手柄 → /cmd_vel
+        # joy_to_cmd_vel: 将/joy转换为/cmd_vel
         Node(
             package='lekiwi_teleop',
             executable=sys.executable,
-            arguments=['-m', 'lekiwi_teleop.teleop_node'],
-            name='lekiwi_teleop_node',
+            arguments=['-m', 'lekiwi_teleop.joy_to_cmd_vel'],
+            name='joy_to_cmd_vel',
             parameters=[{
-                'max_linear_speed': LaunchConfiguration('max_linear_speed'),
-                'max_angular_speed': LaunchConfiguration('max_angular_speed'),
-                'speed_levels': [0.1, 0.3, 0.5],
-                'publish_rate': LaunchConfiguration('publish_rate'),
+                'linear_scale': LaunchConfiguration('linear_scale'),
+                'angular_scale': LaunchConfiguration('angular_scale'),
             }],
             output='screen',
         ),

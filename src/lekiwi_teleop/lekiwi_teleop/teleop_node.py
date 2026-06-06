@@ -1,5 +1,37 @@
 #!/usr/bin/env python3
-"""PC端遥操作节点：将手柄Joy消息映射为底盘速度指令。"""
+"""
+PC端遥操作节点（备用实现）：将手柄Joy消息映射为底盘速度指令。
+
+【状态说明】
+===========
+⚠️ 此文件是备用/历史实现，当前项目使用 joy_to_cmd_vel.py 作为主要的
+joy → cmd_vel 转换节点。
+
+【历史原因】
+-----------
+此节点最初为 game_controller_node（SDL2 Game Controller API）设计，
+支持自动检测 D-pad 模式（buttons vs axes）。
+
+但后续发现：
+1. Alante Li手柄在joy_node中工作更好（D-pad映射为hat axes）
+2. joy_to_cmd_vel.py更简单，直接针对joy_node的axes映射
+3. 此节点的复杂功能（速度切换、自动检测）在实际中使用较少
+
+【功能特点】
+------------
+相比 joy_to_cmd_vel.py，此节点提供：
+- 自动检测D-pad模式（buttons vs axes）
+- LB按钮切换速度档位（慢/中/快）
+- START按钮退出程序
+- 定时发布（无输入时发送零速度）
+
+【启动方式】
+------------
+如果希望使用此节点而非 joy_to_cmd_vel：
+ros2 run lekiwi_teleop teleop_node
+
+但launch文件默认使用 joy_to_cmd_vel。
+"""
 
 import math
 import rclpy

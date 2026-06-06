@@ -43,9 +43,12 @@ from std_msgs.msg import Header
 
 ### 2.1 关键发现：`joy_node` vs `game_controller_node`
 
-ROS2 `joy` 包提供两个节点，行为**完全不同**：
+> ⚠️ **历史文档**：以下内容记录了最初的调研过程。实际项目中我们最终选择了 `joy_node`，
+> 因为 Alante Li 手柄在 `joy_node` 中的 D-pad 映射（hat axes）更符合直觉。
+> 
+> 当前使用：`joy_node` + `joy_to_cmd_vel`
 
-| 特性 | `joy_node` | `game_controller_node`（推荐） |
+| 特性 | `joy_node`（实际使用） | `game_controller_node`（已废弃） |
 |------|-----------|------------------------------|
 | 底层 API | SDL2 Joystick API | SDL2 Game Controller API |
 | 跨平台一致性 | ❌ **不一致** | ✅ **一致** |
@@ -54,7 +57,7 @@ ROS2 `joy` 包提供两个节点，行为**完全不同**：
 
 **GitHub Issue 证实**：`joy_node` 在 Windows 和 Linux 下映射不一致（[Issue #176](https://github.com/ros-drivers/joystick_drivers/issues/176)）。
 
-### 2.2 `game_controller_node` 的 Xbox 固定索引
+### 2.2 `game_controller_node` 的 Xbox 固定索引（历史参考）
 
 | Button Index | 功能 |
 |-------------|------|
@@ -85,9 +88,11 @@ ROS2 `joy` 包提供两个节点，行为**完全不同**：
 
 **⚠️ 这意味着我们之前的键位映射需要调整！**
 
-### 2.3 修正后的键位映射（使用 `game_controller_node`）
+### 2.3 键位映射对比（历史参考）
 
-| 按键 | 原方案 (joy_node) | 修正后 (game_controller_node) |
+> 实际项目使用 `joy_node` 的 hat axes 映射，详见 phase1_chassis_teleop.md
+
+| 按键 | joy_node (hat axes) | game_controller_node (buttons) |
 |------|------------------|------------------------------|
 | 前进 | `axes[7] < 0` | `buttons[11] == 1` (DPAD_UP) |
 | 后退 | `axes[7] > 0` | `buttons[12] == 1` (DPAD_DOWN) |
@@ -99,14 +104,17 @@ ROS2 `joy` 包提供两个节点，行为**完全不同**：
 
 ### 2.4 建议方案
 
-**Phase 1 使用 `game_controller_node`**，原因：
-1. Xbox 手柄在 SDL2 数据库中，跨平台一致
-2. 不需要处理 axes 索引差异
-3. 按钮式 D-pad 更适合离散控制（不需要死区处理）
+**历史决策**：最初计划使用 `game_controller_node`，原因：
 
-启动命令：
+- 提供跨平台一致的固定映射（Xbox 布局）
+- 避免了 `joy_node` 在 Windows/Linux 上映射不一致的问题
+
+**实际使用**：最终使用 `joy_node`，因为 Alante Li 手柄在 `joy_node` 中的 hat 映射更直观。
+
+启动命令（当前使用）：
+
 ```bash
-ros2 run joy game_controller_node --ros-args -p device_id:=0
+ros2 run joy joy_node
 ```
 
 ---
@@ -215,9 +223,9 @@ ros2 multicast receive
 | # | 问题 | 修正 |
 |---|------|------|
 | 1 | Windows 11 ROS2 支持 | 文档中注明"非官方支持，如遇问题可改用 WSL2" |
-| 2 | Joy 节点选择 | 使用 `game_controller_node` 替代 `joy_node` |
+| 2 | Joy 节点选择 | 使用 `joy_node`（实际使用）替代 `game_controller_node` |
 | 3 | D-pad 映射 | 从 axes 改为 buttons（11-14） |
-| 4 | LB/RB/START 索引 | 更新为 game_controller_node 的固定索引 |
+| 4 | LB/RB/START 索引 | 更新为 joy_node 的实际索引（通过测试确认） |
 | 5 | `send_action` 单位 | `theta.vel` 用 deg/s，base_node 中从 rad/s 转换 |
 | 6 | action dict 完整性 | 必须包含所有 9 个键，机械臂部分补 0.0 |
 | 7 | 防火墙提示 | 文档中增加 Windows 防火墙配置说明 |
@@ -228,8 +236,8 @@ ros2 multicast receive
 ## 6. 建议的开发策略
 
 1. **先验证环境**：在 PC 和树莓派上分别安装 ROS2 Jazzy，确认 `ros2 topic list` 能互相看到
-2. **先跑通 joy**：PC 端先单独启动 `game_controller_node`，用 `ros2 topic echo /joy` 确认手柄映射
-3. **再写 teleop_node**：基于确认后的 Joy 消息格式写速度映射
+2. **先跑通 joy**：PC 端先单独启动 `joy_node`，用 `ros2 topic echo /joy` 确认手柄映射
+3. **再写 joy_to_cmd_vel**：基于确认后的 Joy 消息格式写速度映射
 4. **最后写 base_node**：在树莓派上测试 LeRobot 连接和底盘运动
 
 ---
