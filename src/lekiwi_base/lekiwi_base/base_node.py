@@ -160,7 +160,7 @@ class LekiwiBaseNode(Node):
             self.robot.send_action(self.current_action)
 
             # 发布摄像头图像
-            if self.use_cameras and self.image_pub is not None:
+            if self.use_cameras and self.image_pubs:
                 self._publish_camera_images()
 
         except Exception as e:
