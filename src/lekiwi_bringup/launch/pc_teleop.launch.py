@@ -77,9 +77,11 @@ def generate_launch_description():
 
         # ========== 可选节点 ==========
         # image_viewer: 显示摄像头图像（仅在show_camera:=true时启动）
+        # 使用 sys.executable 直接运行 Python 模块（避免需要重新安装包注册 entry_point）
         Node(
             package='lekiwi_teleop',
-            executable='image_viewer',
+            executable=sys.executable,
+            arguments=['-m', 'lekiwi_teleop.image_viewer'],
             name='image_viewer',
             parameters=[{
                 'topic': LaunchConfiguration('camera_topic'),
