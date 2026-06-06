@@ -2,9 +2,12 @@
 """树莓派端底盘驱动节点：接收 /cmd_vel，调用 LeRobot 驱动底盘。"""
 
 import math
+import numpy as np
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 
 
 class LekiwiBaseNode(Node):
@@ -50,6 +53,14 @@ class LekiwiBaseNode(Node):
         # 当前动作缓存
         self.current_action = self._make_zero_action()
         self.action_lock = False  # 简单的动作锁
+
+        # 图像发布（仅在启用摄像头时）
+        self.image_pub = None
+        self.bridge = None
+        if self.use_cameras:
+            self.image_pub = self.create_publisher(Image, '/camera/image_raw', 10)
+            self.bridge = CvBridge()
+            self.get_logger().info('摄像头图像将发布到 /camera/image_raw')
 
         self.get_logger().info(
             f'LekiwiBaseNode started. '
@@ -109,11 +120,35 @@ class LekiwiBaseNode(Node):
         self.last_cmd_time = self.get_clock().now()
 
     def control_callback(self):
-        """定时向底盘发送动作指令。"""
+        """定时向底盘发送动作指令，并发布摄像头图像。"""
         try:
             self.robot.send_action(self.current_action)
+
+            # 发布摄像头图像
+            if self.use_cameras and self.image_pub is not None:
+                self._publish_camera_images()
+
         except Exception as e:
             self.get_logger().error(f'Failed to send action: {e}')
+
+    def _publish_camera_images(self):
+        """读取并发布摄像头图像到 /camera/image_raw。"""
+        try:
+            observation = self.robot.get_observation()
+
+            # 找到图像数据（通常以 'observation.images.' 开头）
+            for key, value in observation.items():
+                if isinstance(value, np.ndarray) and value.ndim == 3:
+                    # 假设第一个摄像头是主摄像头
+                    # OpenCV 图像是 HWC (BGR)，直接转换
+                    img_msg = self.bridge.cv2_to_imgmsg(value, encoding='bgr8')
+                    img_msg.header.stamp = self.get_clock().now().to_msg()
+                    img_msg.header.frame_id = 'camera'
+                    self.image_pub.publish(img_msg)
+                    break  # 只发布第一个摄像头
+
+        except Exception as e:
+            self.get_logger().warning(f'Failed to publish camera image: {e}')
 
     def watchdog_callback(self):
         """看门狗：超时未收到指令则停止底盘。"""
